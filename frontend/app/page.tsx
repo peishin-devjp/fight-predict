@@ -1,3 +1,4 @@
+import Link from "next/link";
 import EventCard from "@/components/EventCard";
 
 export default function Home() {
@@ -46,9 +47,11 @@ export default function Home() {
           eventDate="2026/08/25"
         />
 
-        <button className="mt-6 rounded bg-black px-6 py-3 text-white">
-          他大会を見る
-        </button>
+        <Link href="/events">
+          <button className="mt-6 rounded bg-black px-6 py-3 text-white">
+            他大会を見る
+          </button>
+        </Link>
 
       </section>
     </div>
