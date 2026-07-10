@@ -4,6 +4,23 @@ import MatchCard from "@/components/MatchCard";
 
 export default function MatchPage() {
   const [remainingPoint, setRemainingPoint] = useState(100);
+  const [points, setPoints] = useState<Record<string, number>>({});
+
+  const handlePointChange = (matchCard: string, point: number) => {
+    const newPoints = {
+      ...points,
+       [matchCard]: point
+    };
+
+    setPoints(newPoints);
+
+    const total = Object.values(newPoints).reduce(
+      (sum, value) => sum + value,
+      0
+    );
+
+    setRemainingPoint(100 - total);
+  }
 
   return (
     <div className="max-w-5xl mx-auto p-8">
@@ -15,6 +32,7 @@ export default function MatchPage() {
         <p className="mb-1">開催日: 2026/07/20 (日) 17:00</p>
         <p className="mb-1">予想締切: 2026/07/20 (日) 16:00</p>
         <p className="text-red-500">残り: {remainingPoint}pt</p>
+        <p>{JSON.stringify(points)}</p>
       </div>
 
       <MatchCard
@@ -23,6 +41,7 @@ export default function MatchPage() {
         playerName2="マゴメド・アンカラエフ"
         odds1={1.5}
         odds2={2.5}
+        onPointChange={handlePointChange}
       />
 
       <MatchCard
@@ -31,6 +50,7 @@ export default function MatchPage() {
         playerName2="ブウ・マジン"
         odds1={2.0}
         odds2={1.8}
+        onPointChange={handlePointChange}
       />
 
       <MatchCard
@@ -39,6 +59,7 @@ export default function MatchPage() {
         playerName2="ドン・フライ"
         odds1={1.8}
         odds2={2.2}
+        onPointChange={handlePointChange}
       />
     
       <MatchCard
@@ -47,7 +68,9 @@ export default function MatchPage() {
         playerName2="流川楓"
         odds1={1.5}
         odds2={2.5}
+        onPointChange={handlePointChange}
       />
+
       <div className="flex justify-between">
         <p>
           <button className="mt-6 rounded bg-white px-6 py-3 text-black border border-black-300">
