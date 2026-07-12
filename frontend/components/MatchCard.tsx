@@ -55,6 +55,8 @@ export default function MatchCard({
         <p>配分ポイント</p>
         <input
           type="number"
+          min={0}
+          max={100}
           className="ml-3 w-20 rounded border p-1"
           onChange={(e) => onPointChange(matchCard, Number(e.target.value))}
         />
