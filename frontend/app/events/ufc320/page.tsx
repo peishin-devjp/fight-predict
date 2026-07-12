@@ -40,7 +40,7 @@ export default function MatchPage() {
       
       {/* <p>{matches.length}</p>  //events.matchesの配列数を表示 */}
     
-      {matches.map((match) => (   // events.matchesの各試合に対してMatchCardコンポーネントをレンダリング(回遊)
+      {matches.map((match) => (   // matches配列をループしてMatchCardを表示)
         <MatchCard key={match.matchCard}
           matchCard={match.matchCard}
           playerName1={match.playerName1}
