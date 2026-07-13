@@ -1,5 +1,6 @@
 import Link from "next/link";
 import EventCard from "@/components/EventCard";
+import RankingCards from "@/components/RankingCard";
 
 export default function Home() {
   return (
@@ -52,6 +53,35 @@ export default function Home() {
             他大会を見る
           </button>
         </Link>
+
+
+        <h2 className="text-2xl font-semibold border-b pb-2 mt-18 mb-4">
+          直近3大会ランキング
+        </h2>
+
+        <RankingCards
+          rank={1}
+          userName="格闘王"
+          point={385}
+        />
+
+        <RankingCards
+          rank={2}
+          userName="PEISHIN"
+          point={370}
+        />
+
+        <RankingCards
+          rank={3}
+          userName="ILOVEMMA"
+          point={365}
+        />
+
+        <button className="mt-3 rounded px-3 py-2 bg-black text-white">
+          <Link href="/ranking">
+            ランキングを見る
+          </Link>
+        </button>
 
       </section>
     </div>
