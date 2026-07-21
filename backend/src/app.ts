@@ -29,4 +29,22 @@ app.get("/events", (req, res) => {
   ]);
 });
 
+app.get("/events/:id", (req, res) => {
+  console.log(req.params.id);
+  res.json({
+    id: req.params.id,
+    name: "UFC 320",
+    date: "2026-07-20",
+    deadline: "2026-07-20 16:00",
+    matches: [
+      {
+        id: "match1",
+        fighter1: "アレックス・ペレイラ",
+        fighter2: "マゴメド・アンカラエフ"
+      },
+    ]
+  });
+});
+
+
 export default app;
