@@ -39,8 +39,11 @@ app.get("/events/:id", (req, res) => {
     matches: [
       {
         id: "match1",
-        fighter1: "アレックス・ペレイラ",
-        fighter2: "マゴメド・アンカラエフ"
+        matchCard: "第1試合",
+        playerName1: "アレックス・ペレイラ",
+        playerName2: "マゴメド・アンカラエフ",
+        odds1: 1.80,
+        odds2: 2.10,
       },
     ]
   });

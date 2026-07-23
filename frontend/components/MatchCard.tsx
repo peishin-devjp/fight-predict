@@ -5,7 +5,7 @@ type MatchCardProps = {
   odds1: number;  //選手1のオッズ
   odds2: number;  //選手2のオッズ
 
-  onPointChange: (matchCard: string, point: number) => void;  //配分ポイントの変更を通知するコールバック関数
+  //onPointChange: (matchCard: string, point: number) => void;  //配分ポイントの変更を通知するコールバック関数
 };
 
 export default function MatchCard({
@@ -14,7 +14,7 @@ export default function MatchCard({
   playerName2,
   odds1,
   odds2,
-  onPointChange
+  //onPointChange
 }: MatchCardProps) {
   return (
     <div className="border rounded-lg p-4 text-base mb-4">
@@ -51,6 +51,7 @@ export default function MatchCard({
         </div>
       </label>
 
+      {/*
       <div className="flex items-center mt-4">
         <p>配分ポイント</p>
         <input
@@ -61,6 +62,7 @@ export default function MatchCard({
           onChange={(e) => onPointChange(matchCard, Number(e.target.value))}
         />
       </div>
+      */}
 
     </div>
   );

@@ -1,12 +1,19 @@
-"use client";   // This is a client component
-import { useState } from "react";
+//"use client";   // This is a client component
+//import { useState } from "react";
 import MatchCard from "@/components/MatchCard";
-import {event, matches} from "@/data/events";
+//import {event, matches} from "@/data/events";
 
-export default function MatchPage() {
-  const [remainingPoint, setRemainingPoint] = useState(100);
-  const [points, setPoints] = useState<Record<string, number>>({});
+//export default function MatchPage() {
+export default async function MatchPage() {
 
+  const response = await fetch("http://localhost:3001/events/ufc320");
+  const event = await response.json();
+  console.log(event);
+
+  //const [remainingPoint, setRemainingPoint] = useState(100);
+  //const [points, setPoints] = useState<Record<string, number>>({});
+
+  /*
   const handlePointChange = (matchCard: string, point: number) => {
     const newPoints = {
       ...points,
@@ -22,6 +29,7 @@ export default function MatchPage() {
 
     setRemainingPoint(100 - total);
   }
+  */
 
   return (
     <div className="max-w-5xl mx-auto p-8">
@@ -32,22 +40,26 @@ export default function MatchPage() {
       <div className="text-base p-4">
         <p className="mb-1">開催日: {event.date}</p>
         <p className="mb-1">予想締切: {event.deadline}</p>
-        <p className={remainingPoint < 0 ? "text-red-500" : ""}>
+        {/* <p className={remainingPoint < 0 ? "text-red-500" : ""}>
           残り: {remainingPoint}pt
-        </p>
+        </p> */}
         {/* <p>{JSON.stringify(points)}</p> //残りpt表示 */}
       </div>
       
       {/* <p>{matches.length}</p>  //events.matchesの配列数を表示 */}
     
-      {matches.map((match) => (   // matches配列をループしてMatchCardを表示)
-        <MatchCard key={match.matchCard}
+      {/*{matches.map((match) => ( */}
+      {event.matches.map((match: any) => (
+      
+        <MatchCard
+          key={match.matchCard}
           matchCard={match.matchCard}
           playerName1={match.playerName1}
           playerName2={match.playerName2}
           odds1={match.odds1}
           odds2={match.odds2}
-          onPointChange={handlePointChange}
+          //onPointChange={() => {}}
+          //onPointChange={handlePointChange}
         />
       ))}
 
