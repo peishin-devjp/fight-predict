@@ -5,7 +5,7 @@ type MatchCardProps = {
   odds1: number;  //選手1のオッズ
   odds2: number;  //選手2のオッズ
 
-  //onPointChange: (matchCard: string, point: number) => void;  //配分ポイントの変更を通知するコールバック関数
+  onPointChange: (matchCard: string, point: number) => void;  //配分ポイントの変更を通知するコールバック関数
 };
 
 export default function MatchCard({
