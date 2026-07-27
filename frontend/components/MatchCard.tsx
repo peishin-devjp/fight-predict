@@ -14,12 +14,11 @@ export default function MatchCard({
   playerName2,
   odds1,
   odds2,
-  //onPointChange
+  onPointChange
 }: MatchCardProps) {
   return (
     <div className="border rounded-lg p-4 text-base mb-4">
       <h3 className="mb-2">{matchCard}</h3>
-
 
       <label className="flex items-start mt-1">
         <input
@@ -51,7 +50,6 @@ export default function MatchCard({
         </div>
       </label>
 
-      {/*
       <div className="flex items-center mt-4">
         <p>配分ポイント</p>
         <input
@@ -62,7 +60,6 @@ export default function MatchCard({
           onChange={(e) => onPointChange(matchCard, Number(e.target.value))}
         />
       </div>
-      */}
 
     </div>
   );
