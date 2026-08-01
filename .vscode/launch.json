@@ -4,13 +4,26 @@
     // 詳細情報は次を確認してください: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
-
         {
             "type": "chrome",
             "request": "launch",
             "name": "Fight Predict のデバッグ",
             "url": "http://localhost:3000",
             "webRoot": "${workspaceFolder}/frontend"
+        },
+        {
+            "type": "node",
+            "request": "launch",
+            "name": "Backend Debug",
+            "runtimeExecutable": "npx",
+            "runtimeArgs": [
+                "ts-node",
+                "src/server.ts"
+            ],
+            "cwd": "${workspaceFolder}/backend",
+            "skipFiles": [
+                "<node_internals>/**"
+            ]
         }
     ]
 }

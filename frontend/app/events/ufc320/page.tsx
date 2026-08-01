@@ -16,16 +16,13 @@ export default async function MatchPage() {
       </div>
 
       <PredictionForm
+        eventId={event.id}
         matches={event.matches}
        />
 
       <div className="flex justify-between">
         <button className="mt-6 rounded bg-white px-6 py-3 text-black border border-black-300">
           一時保存
-        </button>
-
-        <button className="mt-6 rounded bg-black px-6 py-3 text-white">
-          予想を確定する
         </button>
       </div>
     </div>

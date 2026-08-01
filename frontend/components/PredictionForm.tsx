@@ -2,14 +2,19 @@
 
 import { useState } from "react";
 import MatchCard from "@/components/MatchCard";
+import { event } from "@/data/events";
 
 type PredictionFormProps = {
+  eventId: string;
   matches: any[];
 };
 
 export default function PredictionForm(
-  {matches}: PredictionFormProps
-) {
+  {
+    eventId,
+    matches,
+  }: PredictionFormProps
+){
   const [remainingPoint, setRemainingPoint] = useState(100);
   const [points, setPoints] = useState<Record<string, number>>({});
 
@@ -29,6 +34,24 @@ export default function PredictionForm(
     setRemainingPoint(100 - total);
   };
 
+  const handleSave = async () => {
+    const data ={
+      eventId,
+      prediction: points,
+    };
+
+    const response = await fetch("http://localhost:3001/predictions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(data),
+    });
+
+    const result = await response.json();
+
+    console.log(data);
+  };
 
   return (
     <>
@@ -48,6 +71,14 @@ export default function PredictionForm(
           onPointChange={handlePointChange}
         />
       ))}
+
+      <button
+        className="mt-6 rounded bg-black px-6 py-3 text-white"
+        onClick={handleSave}
+      >
+        予想を確定する
+      </button>
+
     </>
   );
 }

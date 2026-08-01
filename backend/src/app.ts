@@ -1,6 +1,10 @@
 import express from "express";
+import cors from "cors";
 
 const app = express();
+
+app.use(cors());
+app.use(express.json());
 
 app.get("/", (req, res) => {
   res.send("Fight Predict API");
@@ -49,5 +53,14 @@ app.get("/events/:id", (req, res) => {
   });
 });
 
+app.use(express.json());
+
+app.post("/predictions", (req, res) => {
+  console.log(req.body);
+
+  res.json({
+    message: "Prediction received",
+  });
+});
 
 export default app;
