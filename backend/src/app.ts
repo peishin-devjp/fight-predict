@@ -56,10 +56,19 @@ app.get("/events/:id", (req, res) => {
 app.use(express.json());
 
 app.post("/predictions", (req, res) => {
+  const { eventId, predictions } = req.body;
+
+  if (!eventId || !predictions) {
+    return res.status(400).json({
+      success: false,
+       message: "Invalid data",
+      });
+  }
+
   console.log(req.body);
 
   res.json({
-    message: "Prediction received",
+    success: true,
   });
 });
 

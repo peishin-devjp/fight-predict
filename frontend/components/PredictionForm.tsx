@@ -37,7 +37,13 @@ export default function PredictionForm(
   const handleSave = async () => {
     const data ={
       eventId,
-      prediction: points,
+      predictions: [
+        {
+          fightId: "match1",
+          winnerId: "fighter1",
+          point: 20,
+        },
+      ],
     };
 
     const response = await fetch("http://localhost:3001/predictions", {
