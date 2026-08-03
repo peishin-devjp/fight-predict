@@ -53,22 +53,32 @@ app.get("/events/:id", (req, res) => {
   });
 });
 
-app.use(express.json());
-
 app.post("/predictions", (req, res) => {
   const { eventId, predictions } = req.body;
 
-  if (!eventId || !predictions) {
+  if (!eventId || !Array.isArray(predictions)) {
     return res.status(400).json({
       success: false,
-       message: "Invalid data",
+       message: "Invalid request",
       });
+  }
+
+  const invalidPoint = predictions.some(
+    (prediction: any) => prediction.point < 0
+  );
+
+  if (invalidPoint) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid point",
+    });
   }
 
   console.log(req.body);
 
-  res.json({
+  return res.status(200).json({
     success: true,
+    message: "Prediction received",
   });
 });
 

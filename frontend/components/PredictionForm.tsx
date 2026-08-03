@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import MatchCard from "@/components/MatchCard";
-import { event } from "@/data/events";
 
 type PredictionFormProps = {
   eventId: string;
@@ -35,28 +34,33 @@ export default function PredictionForm(
   };
 
   const handleSave = async () => {
-    const data ={
-      eventId,
-      predictions: [
-        {
-          fightId: "match1",
-          winnerId: "fighter1",
-          point: 20,
-        },
-      ],
-    };
+    try{
+      const data ={
+        eventId,
+        predictions: [
+          {
+            fightId: "match1",
+            winnerId: "fighter1",
+            point: 20,
+          },
+        ],
+      };
 
-    const response = await fetch("http://localhost:3001/predictions", {
+      const response = await fetch("http://localhost:3001/predictions", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(data),
-    });
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(data),
+      });
 
-    const result = await response.json();
+      const result = await response.json();
 
-    console.log(data);
+      console.log(result);
+
+    } catch (error) {
+      console.error("Error saving predictions:", error);
+    }
   };
 
   return (
