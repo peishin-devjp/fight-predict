@@ -11,3 +11,42 @@ datasource db {
   provider = "sqlite"
   url      = env("DATABASE_URL")
 }
+
+model User {
+  id          Int      @id @default(autoincrement())
+  name        String
+  email       String   @unique
+  password    String
+  createdAt   DateTime @default(now())
+}
+
+model Event {
+  id         Int      @id @default(autoincrement())
+  name       String
+  date       DateTime
+  deadline   DateTime
+  createdAt  DateTime @default(now())
+}
+
+model Fight {
+  id        Int      @id @default(autoincrement())
+  eventId   Int
+  fighter1Id Int
+  fighter2Id Int
+  createdAt DateTime @default(now())
+}
+
+model Fighter {
+  id         Int      @id @default(autoincrement())
+  name       String
+  createdAt  DateTime @default(now())
+}
+
+model Prediction {
+  id                Int      @id @default(autoincrement())
+  userId            Int
+  fightId           Int
+  predictedWinnerId Int
+  point           Int
+  createdAt       DateTime @default(now())
+}
