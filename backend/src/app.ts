@@ -1,7 +1,9 @@
 import express from "express";
 import cors from "cors";
+import { PrismaClient } from "@prisma/client";
 
 const app = express();
+const prisma = new PrismaClient();
 
 app.use(cors());
 app.use(express.json());
@@ -81,5 +83,20 @@ app.post("/predictions", (req, res) => {
     message: "Prediction received",
   });
 });
+
+app.post("/test-event", async (req, res) => {
+  const event = await prisma.event.create({
+    data: {
+      name: "TEST EVENT",
+      date: new Date("2026-09-01T18:00:00"),
+      deadline: new Date("2026-09-01T17:00:00"),
+    },
+  });
+
+  console.log(event);
+
+  return res.status(200).json(event);
+});
+
 
 export default app;
