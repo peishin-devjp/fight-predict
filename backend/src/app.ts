@@ -55,10 +55,10 @@ app.get("/events/:id", (req, res) => {
   });
 });
 
-app.post("/predictions", (req, res) => {
-  const { eventId, predictions } = req.body;
+app.post("/predictions", async (req, res) => {
+  const { userId, predictions } = req.body;
 
-  if (!eventId || !Array.isArray(predictions)) {
+  if (!userId || !Array.isArray(predictions)) {
     return res.status(400).json({
       success: false,
        message: "Invalid request",
@@ -76,11 +76,23 @@ app.post("/predictions", (req, res) => {
     });
   }
 
-  console.log(req.body);
+  const prediction = predictions[0];
+
+  const savedPrediction = await prisma.prediction.create({
+    data: {
+      userId: userId,
+      fightId: prediction.fightId,
+      predictedWinnerId: prediction.predictedWinnerId,
+      point: prediction.point,
+    },
+  });
+
+  console.log(savedPrediction);
 
   return res.status(200).json({
     success: true,
-    message: "Prediction received",
+    message: "Prediction saved",
+    prediction: savedPrediction,
   });
 });
 
@@ -98,5 +110,47 @@ app.post("/test-event", async (req, res) => {
   return res.status(200).json(event);
 });
 
+app.post("/test-user", async (req, res) => {
+  const user = await prisma.user.create({
+    data: {
+      name: "TEST USER",
+      email: "test@example.com",
+      password: "test-password",
+    },
+  });
+
+  return res.status(200).json(user);
+});
+
+app.post("/test-fighters", async (req, res) => {
+  const fighter1 = await prisma.fighter.create({
+    data: {
+      name: "アレックス・ペレイラ",
+    },
+  });
+
+  const fighter2 = await prisma.fighter.create({
+    data: {
+      name: "マゴメド・アンカラエフ",
+    },
+  });
+
+  return res.status(200).json({
+    fighter1,
+    fighter2,
+  });
+});
+
+app.post("/test-fight", async (req, res) => {
+  const fight = await prisma.fight.create({
+    data: {
+      eventId: 1,
+      fighter1Id: 1,
+      fighter2Id: 2,
+    },
+  });
+
+  return res.status(200).json(fight);
+});
 
 export default app;
