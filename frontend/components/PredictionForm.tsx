@@ -36,11 +36,11 @@ export default function PredictionForm(
   const handleSave = async () => {
     try{
       const data ={
-        eventId,
+        userId: 1,
         predictions: [
           {
-            fightId: "match1",
-            winnerId: "fighter1",
+            fightId: 1,
+            predictedWinnerId: 1,
             point: 20,
           },
         ],
