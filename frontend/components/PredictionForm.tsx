@@ -16,6 +16,7 @@ export default function PredictionForm(
 ){
   const [remainingPoint, setRemainingPoint] = useState(100);
   const [points, setPoints] = useState<Record<string, number>>({});
+  const [winners, setWinners] = useState<Record<string, number>>({});
 
   const handlePointChange = (matchCard: string, point: number) => {
     const newPoints = {
@@ -33,17 +34,26 @@ export default function PredictionForm(
     setRemainingPoint(100 - total);
   };
 
+  const handleWinnerChange = (matchCard: string, winnerId: number) => {
+    const newWinners = {
+      ...winners,
+      [matchCard]: winnerId,
+    };
+
+    setWinners(newWinners);
+  };
+
   const handleSave = async () => {
     try{
       const data ={
         userId: 1,
-        predictions: [
+        predictions: matches.map((match: any) => (
           {
-            fightId: 1,
-            predictedWinnerId: 1,
-            point: 20,
-          },
-        ],
+            fightId: match.id,
+            predictedWinnerId: winners[match.matchCard],
+            point: points[match.matchCard],
+          }
+        )),
       };
 
       const response = await fetch("http://localhost:3001/predictions", {
@@ -57,7 +67,6 @@ export default function PredictionForm(
       const result = await response.json();
 
       console.log(result);
-
     } catch (error) {
       console.error("Error saving predictions:", error);
     }
@@ -76,9 +85,12 @@ export default function PredictionForm(
           matchCard={match.matchCard}
           playerName1={match.playerName1}
           playerName2={match.playerName2}
+          playerId1={match.playerId1}
+          playerId2={match.playerId2}
           odds1={match.odds1}
           odds2={match.odds2}
           onPointChange={handlePointChange}
+          onWinnerChange={handleWinnerChange}
         />
       ))}
 

@@ -44,12 +44,24 @@ app.get("/events/:id", (req, res) => {
     deadline: "2026-07-20 16:00",
     matches: [
       {
-        id: "match1",
+        id: 1,
         matchCard: "第1試合",
         playerName1: "アレックス・ペレイラ",
         playerName2: "マゴメド・アンカラエフ",
+        playerId1: 1,
+        playerId2: 2,
         odds1: 1.80,
         odds2: 2.10,
+      },
+      {
+        id: 2,
+        matchCard: "第2試合",
+        playerName1: "TEST FIGHTER 3",
+        playerName2: "TEST FIGHTER 4",
+        playerId1: 3,
+        playerId2: 4,
+        odds1: 1.90,
+        odds2: 1.95,
       },
     ]
   });
@@ -76,23 +88,21 @@ app.post("/predictions", async (req, res) => {
     });
   }
 
-  const prediction = predictions[0];
-
-  const savedPrediction = await prisma.prediction.create({
-    data: {
+  const savedPredictions = await prisma.prediction.createMany({
+    data: predictions.map((prediction: any) => ({
       userId: userId,
       fightId: prediction.fightId,
       predictedWinnerId: prediction.predictedWinnerId,
       point: prediction.point,
-    },
+    })),
   });
 
-  console.log(savedPrediction);
+  console.log(savedPredictions);
 
   return res.status(200).json({
     success: true,
-    message: "Prediction saved",
-    prediction: savedPrediction,
+    message: "Predictions saved",
+    result: savedPredictions,
   });
 });
 
@@ -147,6 +157,37 @@ app.post("/test-fight", async (req, res) => {
       eventId: 1,
       fighter1Id: 1,
       fighter2Id: 2,
+    },
+  });
+
+  return res.status(200).json(fight);
+});
+
+app.post("/test-fighters-2", async (req, res) => {
+  const fighter3 = await prisma.fighter.create({
+    data: {
+      name: "TEST FIGHTER 3",
+    },
+  });
+
+  const fighter4 = await prisma.fighter.create({
+    data: {
+      name: "TEST FIGHTER 4",
+    },
+  });
+
+  return res.status(200).json({
+    fighter3,
+    fighter4,
+  });
+});
+
+app.post("/test-fight-2", async (req, res) => {
+  const fight = await prisma.fight.create({
+    data: {
+      eventId: 1,
+      fighter1Id: 3,
+      fighter2Id: 4,
     },
   });
 
