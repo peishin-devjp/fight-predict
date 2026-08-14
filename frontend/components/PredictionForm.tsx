@@ -57,7 +57,7 @@ export default function PredictionForm(
       };
 
       const response = await fetch("http://localhost:3001/predictions", {
-      method: "POST",
+        method: "POST",
         headers: {
           "Content-Type": "application/json",
         },

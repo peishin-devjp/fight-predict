@@ -88,14 +88,28 @@ app.post("/predictions", async (req, res) => {
     });
   }
 
-  const savedPredictions = await prisma.prediction.createMany({
-    data: predictions.map((prediction: any) => ({
-      userId: userId,
-      fightId: prediction.fightId,
-      predictedWinnerId: prediction.predictedWinnerId,
-      point: prediction.point,
-    })),
-  });
+  const savedPredictions = await Promise.all(
+    predictions.map((prediction: any) =>
+      prisma.prediction.upsert({
+        where: {
+          userId_fightId: {
+            userId: userId,
+            fightId: prediction.fightId,
+          },
+        },
+        update: {
+          predictedWinnerId: prediction.predictedWinnerId,
+          point: prediction.point,
+        },
+        create: {
+          userId: userId,
+          fightId: prediction.fightId,
+          predictedWinnerId: prediction.predictedWinnerId,
+          point: prediction.point,
+        },
+      })
+    )
+  );
 
   console.log(savedPredictions);
 

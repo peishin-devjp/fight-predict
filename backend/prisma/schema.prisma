@@ -49,4 +49,6 @@ model Prediction {
   predictedWinnerId Int
   point           Int
   createdAt       DateTime @default(now())
+
+  @@unique([userId, fightId])
 }
