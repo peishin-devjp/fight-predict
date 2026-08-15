@@ -35,35 +35,60 @@ app.get("/events", (req, res) => {
   ]);
 });
 
-app.get("/events/:id", (req, res) => {
-  console.log(req.params.id);
-  res.json({
-    id: req.params.id,
-    name: "UFC 320",
-    date: "2026-07-20",
-    deadline: "2026-07-20 16:00",
-    matches: [
-      {
-        id: 1,
-        matchCard: "第1試合",
-        playerName1: "アレックス・ペレイラ",
-        playerName2: "マゴメド・アンカラエフ",
-        playerId1: 1,
-        playerId2: 2,
-        odds1: 1.80,
-        odds2: 2.10,
+app.get("/events/:id", async (req, res) => {
+  const eventId = Number(req.params.id);
+
+  const event = await prisma.event.findUnique({
+    where: {
+      id: eventId,
+    },
+  });
+
+  if (!event) {
+    return res.status(404).json({
+      message: "Event not found",
+    });
+  }
+
+const fights = await prisma.fight.findMany({
+  where: {
+    eventId: eventId,
+  },
+});
+
+const matches = await Promise.all(
+  fights.map(async (fight, index) => {
+    const fighter1 = await prisma.fighter.findUnique({
+      where: {
+        id: fight.fighter1Id,
       },
-      {
-        id: 2,
-        matchCard: "第2試合",
-        playerName1: "TEST FIGHTER 3",
-        playerName2: "TEST FIGHTER 4",
-        playerId1: 3,
-        playerId2: 4,
-        odds1: 1.90,
-        odds2: 1.95,
+    });
+
+    const fighter2 = await prisma.fighter.findUnique({
+      where: {
+        id: fight.fighter2Id,
       },
-    ]
+    });
+
+    return {
+      id: fight.id,
+      matchCard: `第${index + 1}試合`,
+      playerName1: fighter1?.name,
+      playerName2: fighter2?.name,
+      playerId1: fight.fighter1Id,
+      playerId2: fight.fighter2Id,
+      odds1: 1.80,
+      odds2: 2.10,
+    };
+  })
+);
+
+return res.json({
+    id: event.id,
+    name: event.name,
+    date: event.date,
+    deadline: event.deadline,
+    matches,
   });
 });
 

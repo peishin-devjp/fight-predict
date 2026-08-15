@@ -1,7 +1,7 @@
 import PredictionForm from "@/components/PredictionForm";
 
 export default async function MatchPage() {
-  const response = await fetch("http://localhost:3001/events/ufc320");
+  const response = await fetch("http://localhost:3001/events/1");
   const event = await response.json();
 
   return (
