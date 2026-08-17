@@ -1,7 +1,22 @@
 import PredictionForm from "@/components/PredictionForm";
+import { notFound } from "next/navigation";
 
-export default async function MatchPage() {
-  const response = await fetch("http://localhost:3001/events/1");
+type MatchPageProps = {
+  params: Promise<{
+    id: string;
+  }>;
+};
+
+export default async function MatchPage({
+  params
+}: MatchPageProps) {
+  const { id } = await params;
+  const response = await fetch(`http://localhost:3001/events/${id}`);
+  
+  if (response.status === 404) {
+    notFound();
+  }
+  
   const event = await response.json();
 
   return (

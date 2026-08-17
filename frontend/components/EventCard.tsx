@@ -1,10 +1,14 @@
+import Link from "next/link";
+
 type EventCardProps = {
+  eventId: number;
   eventName: string;
   mainCard?: string;
   eventDate: string;
 };
 
 export default function EventCard({
+  eventId,
   eventName,
   mainCard,
   eventDate,
@@ -23,9 +27,11 @@ export default function EventCard({
         開催日：{eventDate}
       </p>
 
-      <button className="mt-3 rounded px-3 py-2 bg-black text-white">
+      <Link href={`/events/${eventId}`}
+        className="inline-block mt-3 rounded px-3 py-2 bg-black text-white"
+      >
         試合一覧を見る
-      </button>
+      </Link>
     </div>
   );
 }
