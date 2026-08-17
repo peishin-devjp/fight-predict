@@ -8,32 +8,55 @@ const prisma = new PrismaClient();
 app.use(cors());
 app.use(express.json());
 
+
 app.get("/", (req, res) => {
   res.send("Fight Predict API");
 });
 
-app.get("/events", (req, res) => {
-  res.json([
-    {
-      id: "ufc320",
-      name: "UFC 320",
-      mainCard: "アレックス・ペレイラ vs マゴメド・アンカラエフ",
-      date: "2026-07-20",
-    },
-    {
-      id: "rizin33",
-      name: "RIZIN 33",
-      mainCard: "朝倉海 vs 佐々木ウルカ",
-      date: "2026-08-10",
-    },
-    {
-      id: "deep101",
-      name: "DEEP 101",
-      mainCard: "タイガ vs 火の鳥",
-      date: "2026-08-25",
-    },
-  ]);
+
+app.get("/events", async (req, res) => {
+  const events = await prisma.event.findMany();
+
+  const eventsWithMainCard = await Promise.all(
+    events.map(async (event) => {
+      const mainFight = await prisma.fight.findFirst({
+        where: {
+          eventId: event.id,
+        },
+        orderBy: {
+          id: "asc",
+        },
+      });
+
+      if (!mainFight) {
+        return {
+          ...event,
+          mainCard: null,
+        };
+      }
+
+      const fighter1 = await prisma.fighter.findUnique({
+        where: {
+          id: mainFight.fighter1Id,
+        },
+      });
+
+      const fighter2 = await prisma.fighter.findUnique({
+        where: {
+          id: mainFight.fighter2Id,
+        },
+      });
+
+      return {
+        ...event,
+        mainCard: `${fighter1?.name} vs ${fighter2?.name}`,
+      };
+    })
+  );
+
+  return res.json(eventsWithMainCard);
 });
+
 
 app.get("/events/:id", async (req, res) => {
   const eventId = Number(req.params.id);
@@ -50,47 +73,48 @@ app.get("/events/:id", async (req, res) => {
     });
   }
 
-const fights = await prisma.fight.findMany({
-  where: {
-    eventId: eventId,
-  },
-});
+  const fights = await prisma.fight.findMany({
+    where: {
+      eventId: eventId,
+    },
+  });
 
-const matches = await Promise.all(
-  fights.map(async (fight, index) => {
-    const fighter1 = await prisma.fighter.findUnique({
-      where: {
-        id: fight.fighter1Id,
-      },
-    });
+  const matches = await Promise.all(
+    fights.map(async (fight, index) => {
+      const fighter1 = await prisma.fighter.findUnique({
+        where: {
+          id: fight.fighter1Id,
+        },
+      });
 
-    const fighter2 = await prisma.fighter.findUnique({
-      where: {
-        id: fight.fighter2Id,
-      },
-    });
+      const fighter2 = await prisma.fighter.findUnique({
+        where: {
+          id: fight.fighter2Id,
+        },
+      });
 
-    return {
-      id: fight.id,
-      matchCard: `第${index + 1}試合`,
-      playerName1: fighter1?.name,
-      playerName2: fighter2?.name,
-      playerId1: fight.fighter1Id,
-      playerId2: fight.fighter2Id,
-      odds1: 1.80,
-      odds2: 2.10,
-    };
-  })
-);
+      return {
+        id: fight.id,
+        matchCard: `第${index + 1}試合`,
+        playerName1: fighter1?.name,
+        playerName2: fighter2?.name,
+        playerId1: fight.fighter1Id,
+        playerId2: fight.fighter2Id,
+        odds1: 1.80,
+        odds2: 2.10,
+      };
+    }
+  ));
 
-return res.json({
-    id: event.id,
-    name: event.name,
-    date: event.date,
-    deadline: event.deadline,
-    matches,
+  return res.json({
+      id: event.id,
+      name: event.name,
+      date: event.date,
+      deadline: event.deadline,
+      matches,
   });
 });
+
 
 app.post("/predictions", async (req, res) => {
   const { userId, predictions } = req.body;
@@ -145,6 +169,7 @@ app.post("/predictions", async (req, res) => {
   });
 });
 
+
 app.post("/test-event", async (req, res) => {
   const event = await prisma.event.create({
     data: {
@@ -159,6 +184,7 @@ app.post("/test-event", async (req, res) => {
   return res.status(200).json(event);
 });
 
+
 app.post("/test-user", async (req, res) => {
   const user = await prisma.user.create({
     data: {
@@ -170,6 +196,7 @@ app.post("/test-user", async (req, res) => {
 
   return res.status(200).json(user);
 });
+
 
 app.post("/test-fighters", async (req, res) => {
   const fighter1 = await prisma.fighter.create({
@@ -190,6 +217,7 @@ app.post("/test-fighters", async (req, res) => {
   });
 });
 
+
 app.post("/test-fight", async (req, res) => {
   const fight = await prisma.fight.create({
     data: {
@@ -201,6 +229,7 @@ app.post("/test-fight", async (req, res) => {
 
   return res.status(200).json(fight);
 });
+
 
 app.post("/test-fighters-2", async (req, res) => {
   const fighter3 = await prisma.fighter.create({
@@ -221,6 +250,7 @@ app.post("/test-fighters-2", async (req, res) => {
   });
 });
 
+
 app.post("/test-fight-2", async (req, res) => {
   const fight = await prisma.fight.create({
     data: {
@@ -232,5 +262,6 @@ app.post("/test-fight-2", async (req, res) => {
 
   return res.status(200).json(fight);
 });
+
 
 export default app;

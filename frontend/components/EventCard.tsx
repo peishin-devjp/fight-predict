@@ -1,6 +1,6 @@
 type EventCardProps = {
   eventName: string;
-  mainCard: string;
+  mainCard?: string;
   eventDate: string;
 };
 
@@ -13,9 +13,11 @@ export default function EventCard({
     <div className="border rounded-lg p-4 text-base mb-4">
       <h3>{eventName}</h3>
 
-      <p className="font-bold mt-1">
-        {mainCard}
-      </p>
+      {mainCard &&
+        (<p className="font-bold mt-1">
+          {mainCard}
+        </p>
+      )}
 
       <p className="mt-1">
         開催日：{eventDate}
