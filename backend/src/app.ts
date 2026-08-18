@@ -264,4 +264,34 @@ app.post("/test-fight-2", async (req, res) => {
 });
 
 
+app.get("/events/:id/predictions", async (req, res) => {
+  const eventId = Number(req.params.id);
+  const userId = Number(req.query.userId);
+
+  if (!userId) {
+    return res.status(400).json({
+      message: "userId is required",
+    });
+  }
+
+  const fights = await prisma.fight.findMany({
+    where: {
+      eventId: eventId,
+    },
+  });
+
+  const fightIds = fights.map((fight) => fight.id);
+
+  const predictions = await prisma.prediction.findMany({
+    where: {
+      userId: userId,
+      fightId: {
+        in: fightIds,
+      },
+    },
+  });
+
+  return res.json(predictions);
+});
+
 export default app;

@@ -6,6 +6,8 @@ type MatchCardProps = {
   playerId2: number;  //選手2のID
   odds1: number;  //選手1のオッズ
   odds2: number;  //選手2のオッズ
+  selectedWinnerId?: number;  //選択された勝者のID
+  point?: number;  //配分ポイント
 
   onPointChange: (matchCard: string, point: number) => void;  //配分ポイントの変更を通知するコールバック関数
   onWinnerChange: (matchCard: string, winnerId: number) => void;  //勝者の変更を通知するコールバック関数
@@ -19,6 +21,8 @@ export default function MatchCard({
   playerId2,
   odds1,
   odds2,
+  selectedWinnerId,
+  point,
   onPointChange,
   onWinnerChange
 }: MatchCardProps) {
@@ -31,6 +35,7 @@ export default function MatchCard({
           type="radio"
           name={matchCard}
           className="mt-1"
+          checked={selectedWinnerId === playerId1}
           onChange={() => onWinnerChange(matchCard, playerId1)}
         />
         <div className="ml-2">
@@ -48,6 +53,7 @@ export default function MatchCard({
           type="radio"
           name={matchCard}
           className="mt-1"
+          checked={selectedWinnerId === playerId2}
           onChange={() => onWinnerChange(matchCard, playerId2)}
         />
         <div className="ml-2">
@@ -64,6 +70,7 @@ export default function MatchCard({
           type="number"
           min={0}
           max={100}
+          value={point ?? 0}
           className="ml-3 w-20 rounded border p-1"
           onChange={(e) => onPointChange(matchCard, Number(e.target.value))}
         />

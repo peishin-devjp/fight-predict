@@ -19,6 +19,11 @@ export default async function MatchPage({
   
   const event = await response.json();
 
+  const predictionResponse = await fetch(
+    `http://localhost:3001/events/${id}/predictions?userId=1`
+  );
+  const initialPredictions = await predictionResponse.json();
+
   return (
     <div className="max-w-5xl mx-auto p-8">
       <h1 className="text-3xl font-bold mb-2">
@@ -33,6 +38,7 @@ export default async function MatchPage({
       <PredictionForm
         eventId={event.id}
         matches={event.matches}
+        initialPredictions={initialPredictions}
        />
 
       <div className="flex justify-between">

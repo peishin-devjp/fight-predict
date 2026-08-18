@@ -6,17 +6,55 @@ import MatchCard from "@/components/MatchCard";
 type PredictionFormProps = {
   eventId: string;
   matches: any[];
+  initialPredictions: any[];
 };
 
 export default function PredictionForm(
   {
     eventId,
     matches,
+    initialPredictions,
   }: PredictionFormProps
 ){
-  const [remainingPoint, setRemainingPoint] = useState(100);
-  const [points, setPoints] = useState<Record<string, number>>({});
-  const [winners, setWinners] = useState<Record<string, number>>({});
+  const initialPoints: Record<string, number> = Object.fromEntries(
+    initialPredictions.map((prediction: any) => {
+      const match = matches.find(
+        (match: any) => match.id === prediction.fightId
+      );
+
+      return [
+        match?.matchCard,
+        prediction.point,
+      ];
+    })
+  );
+
+  const initialWinners: Record<string, number> = Object.fromEntries(
+    initialPredictions.map((prediction: any) => {
+      const match = matches.find(
+        (match: any) => match.id === prediction.fightId
+      );
+
+      return [
+        match?.matchCard,
+        prediction.predictedWinnerId,
+      ];
+    })
+  );
+
+  const initialTotal = Object.values(initialPoints).reduce(
+    (sum, value) => sum + Number(value),
+    0
+  );
+
+  const [remainingPoint, setRemainingPoint] =
+    useState(100 - initialTotal);
+
+  const [points, setPoints] =
+    useState<Record<string, number>>(initialPoints);
+
+  const [winners, setWinners] =
+    useState<Record<string, number>>(initialWinners);
 
   const handlePointChange = (matchCard: string, point: number) => {
     const newPoints = {
@@ -89,6 +127,8 @@ export default function PredictionForm(
           playerId2={match.playerId2}
           odds1={match.odds1}
           odds2={match.odds2}
+          selectedWinnerId={winners[match.matchCard]}
+          point={points[match.matchCard]}
           onPointChange={handlePointChange}
           onWinnerChange={handleWinnerChange}
         />
