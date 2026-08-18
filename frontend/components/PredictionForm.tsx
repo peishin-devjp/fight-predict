@@ -16,7 +16,7 @@ export default function PredictionForm(
     initialPredictions,
   }: PredictionFormProps
 ){
-  const initialPoints: Record<string, number> = Object.fromEntries(
+  const initialPoints: Record<string, number | ""> = Object.fromEntries(
     initialPredictions.map((prediction: any) => {
       const match = matches.find(
         (match: any) => match.id === prediction.fightId
@@ -42,8 +42,8 @@ export default function PredictionForm(
     })
   );
 
-  const initialTotal = Object.values(initialPoints).reduce(
-    (sum, value) => sum + Number(value),
+  const initialTotal = Object.values(initialPoints).reduce<number>(
+    (sum, value) => sum + Number(value || 0),
     0
   );
 
@@ -51,12 +51,12 @@ export default function PredictionForm(
     useState(100 - initialTotal);
 
   const [points, setPoints] =
-    useState<Record<string, number>>(initialPoints);
+    useState<Record<string, number | "">>(initialPoints);
 
   const [winners, setWinners] =
     useState<Record<string, number>>(initialWinners);
 
-  const handlePointChange = (matchCard: string, point: number) => {
+  const handlePointChange = (matchCard: string, point: number | "") => {
     const newPoints = {
       ...points,
       [matchCard]: point,
@@ -64,8 +64,8 @@ export default function PredictionForm(
 
     setPoints(newPoints);
 
-    const total = Object.values(newPoints).reduce(
-      (sum, value) => sum + value,
+    const total = Object.values(newPoints).reduce<number>(
+      (sum, value) => sum + Number(value || 0),
       0
     );
 
@@ -89,7 +89,8 @@ export default function PredictionForm(
           {
             fightId: match.id,
             predictedWinnerId: winners[match.matchCard],
-            point: points[match.matchCard],
+            point:
+              points[match.matchCard] === "" ? 0 : Number(points[match.matchCard]),
           }
         )),
       };
