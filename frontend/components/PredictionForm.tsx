@@ -50,6 +50,8 @@ export default function PredictionForm(
   const [remainingPoint, setRemainingPoint] =
     useState(100 - initialTotal);
 
+  const [saveMessage, setSaveMessage] = useState("");
+
   const [points, setPoints] =
     useState<Record<string, number | "">>(initialPoints);
 
@@ -105,9 +107,27 @@ export default function PredictionForm(
 
       const result = await response.json();
 
+      if (response.ok) {
+        setSaveMessage("予想を確定しました。");
+
+        setTimeout(() => {
+          setSaveMessage("");
+        }, 3000);
+      } else {
+        setSaveMessage("予想の保存に失敗しました。");
+        setTimeout(() => {
+          setSaveMessage("");
+        }, 3000);
+      }
+
       console.log(result);
     } catch (error) {
       console.error("Error saving predictions:", error);
+
+      setSaveMessage("予想の保存に失敗しました。");
+      setTimeout(() => {
+        setSaveMessage("");
+      }, 3000);
     }
   };
 
@@ -141,6 +161,10 @@ export default function PredictionForm(
       >
         予想を確定する
       </button>
+
+      {saveMessage && (
+        <p className="mt-3 text-sm">{saveMessage}</p>
+      )}
 
     </>
   );
