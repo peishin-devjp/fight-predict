@@ -57,6 +57,14 @@ export default function PredictionForm(
 
   const [winners, setWinners] =
     useState<Record<string, number>>(initialWinners);
+  
+  const showMessage = (message: string) => {
+    setSaveMessage(message);
+
+    setTimeout(() => {
+      setSaveMessage("");
+    }, 3000);
+  };
 
   const handlePointChange = (matchCard: string, point: number | "") => {
     const newPoints = {
@@ -84,6 +92,11 @@ export default function PredictionForm(
   };
 
   const handleSave = async () => {
+    if (remainingPoint < 0) {
+      showMessage("ポイントの合計が100を超えています。");
+      return;
+    }
+
     try{
       const data ={
         userId: 1,
@@ -108,26 +121,16 @@ export default function PredictionForm(
       const result = await response.json();
 
       if (response.ok) {
-        setSaveMessage("予想を確定しました。");
-
-        setTimeout(() => {
-          setSaveMessage("");
-        }, 3000);
+        showMessage("予想を確定しました。");
       } else {
-        setSaveMessage("予想の保存に失敗しました。");
-        setTimeout(() => {
-          setSaveMessage("");
-        }, 3000);
+        showMessage("予想の保存に失敗しました。");
       }
 
       console.log(result);
     } catch (error) {
       console.error("Error saving predictions:", error);
 
-      setSaveMessage("予想の保存に失敗しました。");
-      setTimeout(() => {
-        setSaveMessage("");
-      }, 3000);
+      showMessage("予想の保存に失敗しました。");
     }
   };
 

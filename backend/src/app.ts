@@ -137,6 +137,94 @@ app.post("/predictions", async (req, res) => {
     });
   }
 
+  const fightIds = predictions.map(
+    (prediction: any) => prediction.fightId
+  );
+
+  const fights = await prisma.fight.findMany({
+    where: {
+      id: {
+        in: fightIds,
+      },
+    },
+  });
+
+  if (fights.length !== fightIds.length) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid fight",
+    });
+  }
+
+  const eventIds = [...new Set(fights.map((fight) => fight.eventId))];
+
+  if (eventIds.length !== 1) {
+    return res.status(400).json({
+      success: false,
+      message: "Predictions must belong to one event",
+    });
+  }
+
+  const eventId = eventIds[0];
+
+  if (eventId === undefined) {
+    return res.status(400).json({
+      success: false,
+      message: "Event not found",
+    });
+  }
+
+  const eventFights = await prisma.fight.findMany({
+    where: {
+      eventId: eventId,
+    },
+  });
+
+  const eventFightIds = eventFights.map((fight) => fight.id);
+
+  const existingPredictions = await prisma.prediction.findMany({
+    where: {
+      userId: userId,
+      fightId: {
+        in: eventFightIds,
+      },
+    },
+  });
+
+  const mergedPredictions = eventFightIds.map((fightId) => {
+    const incomingPrediction = predictions.find(
+      (prediction: any) => prediction.fightId === fightId
+    );
+
+    if (incomingPrediction) {
+      return {
+        fightId: fightId,
+        point: Number(incomingPrediction.point),
+      };
+    }
+
+    const existingPrediction = existingPredictions.find(
+      (prediction) => prediction.fightId === fightId
+    );
+
+    return {
+      fightId: fightId,
+      point: existingPrediction?.point ?? 0,
+    };
+  });
+
+  const totalPoint = mergedPredictions.reduce(
+    (sum, prediction) => sum + prediction.point,
+    0
+  );
+
+  if (totalPoint > 100) {
+    return res.status(400).json({
+      success: false,
+      message: "Total points exceed 100",
+    });
+  }
+
   const savedPredictions = await Promise.all(
     predictions.map((prediction: any) =>
       prisma.prediction.upsert({
