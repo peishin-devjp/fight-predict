@@ -1,5 +1,6 @@
 import PredictionForm from "@/components/PredictionForm";
 import { notFound } from "next/navigation";
+import {formatDate} from "@/lib/formatDate";
 
 type MatchPageProps = {
   params: Promise<{
@@ -31,8 +32,8 @@ export default async function MatchPage({
       </h1>
 
       <div className="text-base p-4">
-        <p className="mb-1">開催日: {event.date}</p>
-        <p className="mb-1">予想締切: {event.deadline}</p>
+        <p className="mb-1">開催日: {formatDate(event.date)}</p>
+        <p className="mb-1">予想締切: {formatDate(event.deadline)}</p>
       </div>
 
       <PredictionForm

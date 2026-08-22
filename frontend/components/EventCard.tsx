@@ -1,4 +1,5 @@
 import Link from "next/link";
+import {formatDate} from "@/lib/formatDate";
 
 type EventCardProps = {
   eventId: number;
@@ -24,7 +25,7 @@ export default function EventCard({
       )}
 
       <p className="mt-1">
-        開催日：{eventDate}
+        開催日：{formatDate(eventDate)}
       </p>
 
       <Link href={`/events/${eventId}`}

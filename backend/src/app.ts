@@ -9,11 +9,17 @@ app.use(cors());
 app.use(express.json());
 
 
+// ==============================
+// API動作確認
+// ==============================
 app.get("/", (req, res) => {
   res.send("Fight Predict API");
 });
 
 
+// ==============================
+// 大会一覧取得
+// ==============================
 app.get("/events", async (req, res) => {
   const events = await prisma.event.findMany();
 
@@ -58,6 +64,9 @@ app.get("/events", async (req, res) => {
 });
 
 
+// ==============================
+// 大会詳細取得
+// ==============================
 app.get("/events/:id", async (req, res) => {
   const eventId = Number(req.params.id);
 
@@ -116,8 +125,13 @@ app.get("/events/:id", async (req, res) => {
 });
 
 
+// ==============================
+// 予測保存・更新
+// ==============================
 app.post("/predictions", async (req, res) => {
   const { userId, predictions } = req.body;
+
+  // リクエスト内容を検証
 
   if (!userId || !Array.isArray(predictions)) {
     return res.status(400).json({
@@ -136,6 +150,8 @@ app.post("/predictions", async (req, res) => {
       message: "Invalid point",
     });
   }
+
+  // 送信された試合から対象大会を特定
 
   const fightIds = predictions.map(
     (prediction: any) => prediction.fightId
@@ -174,6 +190,8 @@ app.post("/predictions", async (req, res) => {
     });
   }
 
+  // 対象大会の試合と既存Predictionを取得
+
   const eventFights = await prisma.fight.findMany({
     where: {
       eventId: eventId,
@@ -190,6 +208,8 @@ app.post("/predictions", async (req, res) => {
       },
     },
   });
+
+  // 更新後の状態を作成し、大会合計が100pt以内か検証
 
   const mergedPredictions = eventFightIds.map((fightId) => {
     const incomingPrediction = predictions.find(
@@ -225,6 +245,8 @@ app.post("/predictions", async (req, res) => {
     });
   }
 
+  // Predictionを試合ごとに新規保存または更新
+
   const savedPredictions = await Promise.all(
     predictions.map((prediction: any) =>
       prisma.prediction.upsert({
@@ -258,6 +280,10 @@ app.post("/predictions", async (req, res) => {
 });
 
 
+// ==============================
+// テストデータ作成用API
+// TODO: 本番運用前に削除する
+// ==============================
 app.post("/test-event", async (req, res) => {
   const event = await prisma.event.create({
     data: {
@@ -352,6 +378,9 @@ app.post("/test-fight-2", async (req, res) => {
 });
 
 
+// ==============================
+// 保存済み予想取得
+// ==============================
 app.get("/events/:id/predictions", async (req, res) => {
   const eventId = Number(req.params.id);
   const userId = Number(req.query.userId);
