@@ -12,6 +12,19 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum FightStatus {
+  scheduled
+  finished
+  draw
+  no_contest
+  cancelled
+}
+
+enum FightMethod {
+  decision
+  finish
+}
+
 model User {
   id          Int      @id @default(autoincrement())
   name        String
@@ -32,7 +45,16 @@ model Fight {
   id        Int      @id @default(autoincrement())
   eventId   Int
   fighter1Id Int
-  fighter2Id Int
+  fighter2Id Int?
+
+  status     FightStatus @default(scheduled)
+  winnerId   Int?
+  method     FightMethod?
+
+  fighter1   Fighter     @relation("FightFighter1", fields: [fighter1Id], references: [id])
+  fighter2   Fighter?    @relation("FightFighter2", fields: [fighter2Id], references: [id])
+  winner     Fighter?    @relation("FightWinner", fields: [winnerId], references: [id])
+
   createdAt DateTime @default(now())
 }
 
@@ -40,6 +62,10 @@ model Fighter {
   id         Int      @id @default(autoincrement())
   name       String
   createdAt  DateTime @default(now())
+
+  fightsAsFighter1 Fight[] @relation("FightFighter1")
+  fightsAsFighter2 Fight[] @relation("FightFighter2")
+  wonFights        Fight[] @relation("FightWinner")
 }
 
 model Prediction {
