@@ -5,6 +5,17 @@ import { PrismaClient } from "@prisma/client";
 const app = express();
 const prisma = new PrismaClient();
 
+const sendError = (
+  res: express.Response,
+  status: number,
+  message: string
+) => {
+  return res.status(status).json({
+    success: false,
+    message,
+  });
+};
+
 app.use(cors());
 app.use(express.json());
 
@@ -47,11 +58,11 @@ app.get("/events", async (req, res) => {
         },
       });
 
-      const fighter2 = await prisma.fighter.findUnique({
+      const fighter2 = mainFight.fighter2Id ? await prisma.fighter.findUnique({
         where: {
           id: mainFight.fighter2Id,
         },
-      });
+      }) : null;
 
       return {
         ...event,
@@ -96,11 +107,11 @@ app.get("/events/:id", async (req, res) => {
         },
       });
 
-      const fighter2 = await prisma.fighter.findUnique({
+      const fighter2 = fight.fighter2Id ? await prisma.fighter.findUnique({
         where: {
           id: fight.fighter2Id,
         },
-      });
+      }) : null;
 
       return {
         id: fight.id,
@@ -410,5 +421,102 @@ app.get("/events/:id/predictions", async (req, res) => {
 
   return res.json(predictions);
 });
+
+
+// ==============================
+// Fight result update
+// ==============================
+app.patch("/fights/:id/result", async (req, res) => {
+  const fightId = Number(req.params.id);
+
+  if (!Number.isInteger(fightId) || fightId <= 0) {
+    return sendError(res, 400, "Invalid fight ID");
+  }
+
+  const fight = await prisma.fight.findUnique({
+    where: {
+      id: fightId,
+    },
+  });
+
+  if (!fight) {
+    return sendError(res, 404, "Fight not found");
+  }
+
+  const { status, winnerId, method } = req.body;
+
+  const allowedStatuses = ["scheduled", "finished", "draw", "no_contest", "cancelled"];
+
+  if (!allowedStatuses.includes(status)) {
+    return sendError(res, 400, "Invalid status");
+  }
+
+  if (status === "finished") {
+    if (winnerId == null) {
+      return sendError(
+        res,
+        400,
+        "winnerId is required when status is finished"
+      );
+    }
+
+    if (method !== "decision" && method !== "finish") {
+      return sendError(
+        res,
+        400,
+        "method is required when status is finished"
+      );
+    }
+
+    if (winnerId !== fight.fighter1Id && winnerId !== fight.fighter2Id) {
+      return sendError(
+        res,
+        400,
+        "winnerId must be either fighter1Id or fighter2Id"
+      );
+    }
+  }
+
+  if(
+    status === "scheduled" ||
+    status === "draw" ||
+    status === "no_contest" ||
+    status === "cancelled"
+  ) {
+    if (winnerId !== null) {
+      return sendError(
+        res,
+        400,
+        "winnerId must be null when status is not finished"
+      );
+    }
+    
+    if (method !== null) {
+      return sendError(
+        res,
+        400,
+        "method must be null when status is not finished"
+      );
+    }
+  }
+
+  const updatedFight = await prisma.fight.update({
+    where: {
+      id: fightId,
+    },
+    data: {
+      status,
+      winnerId: winnerId ?? null,
+      method: method ?? null,
+    },
+  });
+
+  return res.status(200).json({
+    success: true,
+    message: "Fight result updated",
+    fight: updatedFight,
+  });
+});
+
 
 export default app;
