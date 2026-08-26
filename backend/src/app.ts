@@ -519,4 +519,65 @@ app.patch("/fights/:id/result", async (req, res) => {
 });
 
 
+// ==============================
+// Prediction result judgment
+// ==============================
+app.get("/predictions/:id/result", async (req, res) => {
+  const predictionId = Number(req.params.id);
+
+  if (!Number.isInteger(predictionId) || predictionId <= 0) {
+    return sendError(res, 400, "Invalid prediction ID");
+  }
+
+  const prediction = await prisma.prediction.findUnique({
+    where: {
+      id: predictionId,
+    },
+  });
+
+  if (!prediction) {
+    return sendError(res, 404, "Prediction not found");
+  }
+
+  const fight = await prisma.fight.findUnique({
+    where: {
+      id: prediction.fightId,
+    },
+  });
+
+  if (!fight) {
+    return sendError(res, 404, "Fight not found");
+  }
+
+  let result: "HIT" | "MISS" | "REFUND" | "NOT_SETTLED";
+
+  switch (fight.status) {
+    case "finished":
+      result =
+        prediction.predictedWinnerId === fight.winnerId
+          ? "HIT"
+          : "MISS";
+      break;
+
+    case "draw":
+    case "no_contest":
+    case "cancelled":
+      result = "REFUND";
+      break;
+
+    case "scheduled":
+      result = "NOT_SETTLED";
+      break;
+  }
+
+  return res.status(200).json({
+    success: true,
+    predictionId: prediction.id,
+    fightId: fight.id,
+    result,
+  });
+
+});
+
+
 export default app;
