@@ -3,6 +3,9 @@
 import { useState } from "react";
 import MatchCard from "@/components/MatchCard";
 
+const MAX_EVENT_POINTS = 100;
+const MAX_FIGHT_POINTS = 50;
+
 type PredictionFormProps = {
   eventId: string;
   matches: any[];
@@ -48,7 +51,7 @@ export default function PredictionForm(
   );
 
   const [remainingPoint, setRemainingPoint] =
-    useState(100 - initialTotal);
+    useState(MAX_EVENT_POINTS - initialTotal);
 
   const [saveMessage, setSaveMessage] = useState("");
 
@@ -79,7 +82,7 @@ export default function PredictionForm(
       0
     );
 
-    setRemainingPoint(100 - total);
+    setRemainingPoint(MAX_EVENT_POINTS - total);
   };
 
   const handleWinnerChange = (matchCard: string, winnerId: number) => {
@@ -92,8 +95,18 @@ export default function PredictionForm(
   };
 
   const handleSave = async () => {
+
+    const overPointLimit = Object.values(points).some(
+      (point) => Number(point || 0) > MAX_FIGHT_POINTS
+    );
+
+    if (overPointLimit) {
+      showMessage(`1試合に配分できるポイントは${MAX_FIGHT_POINTS}ptまでです。`);
+      return;
+    }
+
     if (remainingPoint < 0) {
-      showMessage("ポイントの合計が100を超えています。");
+      showMessage(`ポイントの合計が${MAX_EVENT_POINTS}を超えています。`);
       return;
     }
 

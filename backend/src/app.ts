@@ -2,6 +2,9 @@ import express from "express";
 import cors from "cors";
 import { PrismaClient } from "@prisma/client";
 
+const MAX_EVENT_POINTS = 100;
+const MAX_FIGHT_POINTS = 50;
+
 const app = express();
 const prisma = new PrismaClient();
 
@@ -152,13 +155,14 @@ app.post("/predictions", async (req, res) => {
   }
 
   const invalidPoint = predictions.some(
-    (prediction: any) => prediction.point < 0
+    (prediction: any) =>
+      prediction.point < 0 || prediction.point > MAX_FIGHT_POINTS
   );
 
   if (invalidPoint) {
     return res.status(400).json({
       success: false,
-      message: "Invalid point",
+      message: `Point must be between 0 and ${MAX_FIGHT_POINTS}`,
     });
   }
 
@@ -220,7 +224,7 @@ app.post("/predictions", async (req, res) => {
     },
   });
 
-  // 更新後の状態を作成し、大会合計が100pt以内か検証
+  // 更新後の状態を作成し、大会合計がMAX_EVENT_POINTSpt以内か検証
 
   const mergedPredictions = eventFightIds.map((fightId) => {
     const incomingPrediction = predictions.find(
@@ -249,10 +253,10 @@ app.post("/predictions", async (req, res) => {
     0
   );
 
-  if (totalPoint > 100) {
+  if (totalPoint > MAX_EVENT_POINTS) {
     return res.status(400).json({
       success: false,
-      message: "Total points exceed 100",
+      message: `Total points exceed ${MAX_EVENT_POINTS}`,
     });
   }
 

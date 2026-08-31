@@ -69,7 +69,7 @@ export default function MatchCard({
         <input
           type="number"
           min={0}
-          max={100}
+          max={50}
           value={point ?? ""}
           className="ml-3 w-20 rounded border p-1"
           onChange={(e) => {
