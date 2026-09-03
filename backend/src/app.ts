@@ -1,6 +1,9 @@
 import express from "express";
 import cors from "cors";
 import { PrismaClient } from "@prisma/client";
+import { calculateDifficultyMultiplier } from "./utils/difficultyMultiplier";
+import { calculateSupportRate } from "./utils/calculateSupportRate";
+import { calculateEarnedPoint } from "./utils/calculateEarnedPoint";
 
 const MAX_EVENT_POINTS = 100;
 const MAX_FIGHT_POINTS = 50;
@@ -533,6 +536,7 @@ app.get("/predictions/:id/result", async (req, res) => {
     return sendError(res, 400, "Invalid prediction ID");
   }
 
+  // 対象Predictionを取得
   const prediction = await prisma.prediction.findUnique({
     where: {
       id: predictionId,
@@ -543,6 +547,7 @@ app.get("/predictions/:id/result", async (req, res) => {
     return sendError(res, 404, "Prediction not found");
   }
 
+  // 対象Fightを取得
   const fight = await prisma.fight.findUnique({
     where: {
       id: prediction.fightId,
@@ -553,24 +558,49 @@ app.get("/predictions/:id/result", async (req, res) => {
     return sendError(res, 404, "Fight not found");
   }
 
+  // 同じFightに対するPredictionをすべて取得
+  const fightPredictions = await prisma.prediction.findMany({
+    where: {
+      fightId: fight.id,
+    },
+  });
+
+  // 対象Predictionが予想したFighterの支持率を人数から算出
+  const supportRate = calculateSupportRate(
+    fightPredictions,
+    prediction.predictedWinnerId
+  );
+
+  // 支持率から難易度倍率を算出
+  const multiplier = calculateDifficultyMultiplier(supportRate);
+
   let result: "HIT" | "MISS" | "REFUND" | "NOT_SETTLED";
+  let earnedPoint: number | null;
 
   switch (fight.status) {
     case "finished":
-      result =
-        prediction.predictedWinnerId === fight.winnerId
-          ? "HIT"
-          : "MISS";
+      if (prediction.predictedWinnerId === fight.winnerId) {
+        result = "HIT";
+        earnedPoint = calculateEarnedPoint(
+          prediction.point,
+          multiplier
+        );
+      } else {
+        result = "MISS";
+        earnedPoint = 0;
+      }
       break;
 
     case "draw":
     case "no_contest":
     case "cancelled":
       result = "REFUND";
+      earnedPoint = prediction.point;
       break;
 
     case "scheduled":
       result = "NOT_SETTLED";
+      earnedPoint = null;
       break;
   }
 
@@ -579,8 +609,10 @@ app.get("/predictions/:id/result", async (req, res) => {
     predictionId: prediction.id,
     fightId: fight.id,
     result,
+    supportRate,
+    multiplier,
+    earnedPoint,
   });
-
 });
 
 
