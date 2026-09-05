@@ -1,9 +1,7 @@
 import express from "express";
 import cors from "cors";
 import { PrismaClient } from "@prisma/client";
-import { calculateDifficultyMultiplier } from "./utils/difficultyMultiplier";
-import { calculateSupportRate } from "./utils/calculateSupportRate";
-import { calculateEarnedPoint } from "./utils/calculateEarnedPoint";
+import { calculatePredictionResult } from "./utils/calculatePredictionResult";
 
 const MAX_EVENT_POINTS = 100;
 const MAX_FIGHT_POINTS = 50;
@@ -149,7 +147,6 @@ app.post("/predictions", async (req, res) => {
   const { userId, predictions } = req.body;
 
   // リクエスト内容を検証
-
   if (!userId || !Array.isArray(predictions)) {
     return res.status(400).json({
       success: false,
@@ -170,7 +167,6 @@ app.post("/predictions", async (req, res) => {
   }
 
   // 送信された試合から対象大会を特定
-
   const fightIds = predictions.map(
     (prediction: any) => prediction.fightId
   );
@@ -209,7 +205,6 @@ app.post("/predictions", async (req, res) => {
   }
 
   // 対象大会の試合と既存Predictionを取得
-
   const eventFights = await prisma.fight.findMany({
     where: {
       eventId: eventId,
@@ -228,7 +223,6 @@ app.post("/predictions", async (req, res) => {
   });
 
   // 更新後の状態を作成し、大会合計がMAX_EVENT_POINTSpt以内か検証
-
   const mergedPredictions = eventFightIds.map((fightId) => {
     const incomingPrediction = predictions.find(
       (prediction: any) => prediction.fightId === fightId
@@ -264,7 +258,6 @@ app.post("/predictions", async (req, res) => {
   }
 
   // Predictionを試合ごとに新規保存または更新
-
   const savedPredictions = await Promise.all(
     predictions.map((prediction: any) =>
       prisma.prediction.upsert({
@@ -558,60 +551,136 @@ app.get("/predictions/:id/result", async (req, res) => {
     return sendError(res, 404, "Fight not found");
   }
 
-  // 同じFightに対するPredictionをすべて取得
+  // 支持率計算用に同じFightのPredictionを取得
   const fightPredictions = await prisma.prediction.findMany({
     where: {
       fightId: fight.id,
     },
   });
 
-  // 対象Predictionが予想したFighterの支持率を人数から算出
-  const supportRate = calculateSupportRate(
-    fightPredictions,
-    prediction.predictedWinnerId
+  // Prediction単位の結果計算は共通utilityへ委譲
+  const predictionResult = calculatePredictionResult(
+    prediction,
+    fight,
+    fightPredictions
   );
-
-  // 支持率から難易度倍率を算出
-  const multiplier = calculateDifficultyMultiplier(supportRate);
-
-  let result: "HIT" | "MISS" | "REFUND" | "NOT_SETTLED";
-  let earnedPoint: number | null;
-
-  switch (fight.status) {
-    case "finished":
-      if (prediction.predictedWinnerId === fight.winnerId) {
-        result = "HIT";
-        earnedPoint = calculateEarnedPoint(
-          prediction.point,
-          multiplier
-        );
-      } else {
-        result = "MISS";
-        earnedPoint = 0;
-      }
-      break;
-
-    case "draw":
-    case "no_contest":
-    case "cancelled":
-      result = "REFUND";
-      earnedPoint = prediction.point;
-      break;
-
-    case "scheduled":
-      result = "NOT_SETTLED";
-      earnedPoint = null;
-      break;
-  }
 
   return res.status(200).json({
     success: true,
-    predictionId: prediction.id,
-    fightId: fight.id,
-    result,
-    supportRate,
-    multiplier,
-    earnedPoint,
+    ...predictionResult,
+  });
+});
+
+
+// ==============================
+// Event score by user
+// ==============================
+app.get("/events/:eventId/users/:userId/score", async (req, res) => {
+  const eventId = Number(req.params.eventId);
+  const userId = Number(req.params.userId);
+
+  // URLパラメータを検証
+  if (!Number.isInteger(eventId) || eventId <= 0) {
+    return sendError(res, 400, "Invalid event ID");
+  }
+
+  if (!Number.isInteger(userId) || userId <= 0) {
+    return sendError(res, 400, "Invalid user ID");
+  }
+
+  // Eventの存在確認
+  const event = await prisma.event.findUnique({
+    where: {
+      id: eventId,
+    },
+  });
+
+  if (!event) {
+    return sendError(res, 404, "Event not found");
+  }
+
+  // Userの存在確認
+  const user = await prisma.user.findUnique({
+    where: {
+      id: userId,
+    },
+  });
+
+  if (!user) {
+    return sendError(res, 404, "User not found");
+  }
+
+  // 対象Eventに含まれるFightを取得
+  const eventFights = await prisma.fight.findMany({
+    where: {
+      eventId,
+    },
+  });
+
+  const eventFightIds = eventFights.map((fight) => fight.id);
+
+  // 対象UserがこのEventで行ったPredictionを取得
+  const userPredictions = await prisma.prediction.findMany({
+    where: {
+      userId,
+      fightId: {
+        in: eventFightIds,
+      },
+    },
+  });
+
+  // Predictionごとの結果を計算
+  const predictionResults = [];
+
+  for (const prediction of userPredictions) {
+    // 対象PredictionのFightを取得
+    const fight = eventFights.find(
+      (eventFight) => eventFight.id === prediction.fightId
+    );
+
+    if (!fight) {
+      return sendError(res, 500, "Fight data not found");
+    }
+
+    // 支持率計算用に同じFightの全Predictionを取得
+    const fightPredictions = await prisma.prediction.findMany({
+      where: {
+        fightId: fight.id,
+      },
+    });
+
+    // 既存の共通処理を使ってPrediction結果を計算
+    const predictionResult = calculatePredictionResult(
+      prediction,
+      fight,
+      fightPredictions
+    );
+
+    predictionResults.push(predictionResult);
+  }
+
+  // NOT_SETTLEDが1件でもある場合は大会ポイントを未確定とする
+  const isSettled = predictionResults.every(
+    (predictionResult) =>
+      predictionResult.result !== "NOT_SETTLED"
+  );
+
+  // 各Predictionで計算済みのearnedPointを合計
+  const totalEarnedPoint = isSettled
+    ? predictionResults.reduce(
+        (total, predictionResult) =>
+          total + (predictionResult.earnedPoint ?? 0),
+        0
+      )
+    : null;
+
+  return res.status(200).json({
+    success: true,
+    eventId,
+    userId,
+    isSettled,
+    totalEarnedPoint,
+    predictions: predictionResults,
   });
 });
 
