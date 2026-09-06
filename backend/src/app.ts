@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import { PrismaClient } from "@prisma/client";
 import { calculatePredictionResult } from "./utils/calculatePredictionResult";
+import { calculateEventScore } from "./utils/calculateEventScore";
 
 const MAX_EVENT_POINTS = 100;
 const MAX_FIGHT_POINTS = 50;
@@ -629,58 +630,281 @@ app.get("/events/:eventId/users/:userId/score", async (req, res) => {
     },
   });
 
-  // Predictionごとの結果を計算
-  const predictionResults = [];
-
-  for (const prediction of userPredictions) {
-    // 対象PredictionのFightを取得
-    const fight = eventFights.find(
-      (eventFight) => eventFight.id === prediction.fightId
-    );
-
-    if (!fight) {
-      return sendError(res, 500, "Fight data not found");
-    }
-
-    // 支持率計算用に同じFightの全Predictionを取得
-    const fightPredictions = await prisma.prediction.findMany({
-      where: {
-        fightId: fight.id,
+  // 支持率計算用にEvent内の全Predictionを一括取得
+  const allEventPredictions = await prisma.prediction.findMany({
+    where: {
+      fightId: {
+        in: eventFightIds,
       },
-    });
+    },
+  });
 
-    // 既存の共通処理を使ってPrediction結果を計算
-    const predictionResult = calculatePredictionResult(
-      prediction,
-      fight,
-      fightPredictions
-    );
-
-    predictionResults.push(predictionResult);
-  }
-
-  // NOT_SETTLEDが1件でもある場合は大会ポイントを未確定とする
-  const isSettled = predictionResults.every(
-    (predictionResult) =>
-      predictionResult.result !== "NOT_SETTLED"
+  // Event単位のUser獲得ポイントを共通処理で計算
+  const eventScore = calculateEventScore(
+    userPredictions,
+    eventFights,
+    allEventPredictions
   );
-
-  // 各Predictionで計算済みのearnedPointを合計
-  const totalEarnedPoint = isSettled
-    ? predictionResults.reduce(
-        (total, predictionResult) =>
-          total + (predictionResult.earnedPoint ?? 0),
-        0
-      )
-    : null;
 
   return res.status(200).json({
     success: true,
     eventId,
     userId,
-    isSettled,
-    totalEarnedPoint,
-    predictions: predictionResults,
+    ...eventScore,
+  });
+});
+
+
+// ==============================
+// Rankings
+// ==============================
+type RankingUser = {
+  userId: number;
+  name: string;
+  totalEarnedPoint: number;
+  eventScores: {
+    eventId: number;
+    earnedPoint: number;
+  }[];
+};
+
+app.get("/rankings", async (_req, res) => {
+  // 新しいEventから順に取得
+  const events = await prisma.event.findMany({
+    orderBy: {
+      date: "desc",
+    },
+  });
+
+  const settledEvents = [];
+
+  // Eventごとに全Fightが確定しているか確認
+  for (const event of events) {
+    const fights = await prisma.fight.findMany({
+      where: {
+        eventId: event.id,
+      },
+    });
+
+    // Fightが存在しないEventはランキング対象外
+    if (fights.length === 0) {
+      continue;
+    }
+
+    // scheduledが1件でも存在するEventは未確定
+    const settledStatuses = [
+      "finished",
+      "draw",
+      "no_contest",
+      "cancelled",
+    ];
+
+    const isSettled = fights.every(
+      (fight) => settledStatuses.includes(fight.status)
+    );
+
+    if (isSettled) {
+      settledEvents.push(event);
+    }
+
+    // 直近3Eventが見つかった時点で終了
+    if (settledEvents.length === 3) {
+      break;
+    }
+  }
+
+  // ランキング対象EventのIDを取得
+  const targetEventIds = settledEvents.map((event) => event.id);
+
+  // 対象Eventに含まれるFightを取得
+  const targetFights = await prisma.fight.findMany({
+    where: {
+      eventId: {
+        in: targetEventIds,
+      },
+    },
+  });
+
+  const targetFightIds = targetFights.map((fight) => fight.id);
+
+  // 対象3Eventのいずれかに参加したUser IDを取得
+  const participatingPredictions = await prisma.prediction.findMany({
+    where: {
+      fightId: {
+        in: targetFightIds,
+      },
+    },
+  });
+
+  const participatingUserIds = [
+    ...new Set(
+      participatingPredictions.map(
+        (prediction) => prediction.userId
+      )
+    ),
+  ];
+
+  // ランキング対象Userを取得
+  const participatingUsers = await prisma.user.findMany({
+    where: {
+      id: {
+        in: participatingUserIds,
+      },
+    },
+  });
+
+  // Userごとに対象Eventの獲得ポイントを計算
+  const rankingUsers: RankingUser[] = [];
+
+  for (const user of participatingUsers) {
+    const eventScores = [];
+
+    for (const event of settledEvents) {
+      // 対象EventのFightを取得
+      const eventFights = targetFights.filter(
+        (fight) => fight.eventId === event.id
+      );
+
+      const eventFightIds = eventFights.map(
+        (fight) => fight.id
+      );
+
+      // 対象Eventの全Predictionを取得
+      const allEventPredictions =
+        participatingPredictions.filter(
+          (prediction) =>
+            eventFightIds.includes(prediction.fightId)
+        );
+
+      // 対象UserのPredictionだけを取得
+      const userPredictions =
+        allEventPredictions.filter(
+          (prediction) => prediction.userId === user.id
+        );
+
+      // 不参加Eventは0pt
+      if (userPredictions.length === 0) {
+        eventScores.push({
+          eventId: event.id,
+          earnedPoint: 0,
+        });
+
+        continue;
+      }
+
+      // 既存のEvent単位スコア計算を再利用
+      const eventScore = calculateEventScore(
+        userPredictions,
+        eventFights,
+        allEventPredictions
+      );
+
+      eventScores.push({
+        eventId: event.id,
+        earnedPoint: eventScore.totalEarnedPoint ?? 0,
+      });
+    }
+
+    // 3Event分の獲得ポイントを合計
+    const totalEarnedPoint =
+      eventScores.reduce(
+        (total, eventScore) =>
+          total + Math.round(eventScore.earnedPoint * 10),
+        0
+      ) / 10;
+
+    rankingUsers.push({
+      userId: user.id,
+      name: user.name,
+      totalEarnedPoint,
+      eventScores,
+    });
+  }
+
+  // 合計 → 直近 → 2大会前の順でソート
+  rankingUsers.sort((a, b) => {
+    // 第1判定：3大会合計
+    if (b.totalEarnedPoint !== a.totalEarnedPoint) {
+      return b.totalEarnedPoint - a.totalEarnedPoint;
+    }
+
+    // 第2判定：直近大会
+    const aLatestScore = a.eventScores[0]?.earnedPoint ?? 0;
+    const bLatestScore = b.eventScores[0]?.earnedPoint ?? 0;
+
+    if (bLatestScore !== aLatestScore) {
+      return bLatestScore - aLatestScore;
+    }
+
+    // 第3判定：2大会前
+    const aSecondLatestScore =
+      a.eventScores[1]?.earnedPoint ?? 0;
+    const bSecondLatestScore =
+      b.eventScores[1]?.earnedPoint ?? 0;
+
+    if (bSecondLatestScore !== aSecondLatestScore) {
+      return bSecondLatestScore - aSecondLatestScore;
+    }
+
+    // 合計・直近・2大会前がすべて同じなら同順位
+    return 0;
+  });
+
+  // 同じスコア構成のUserには同じrankを付与
+  type RankingResult = RankingUser & {
+    rank: number;
+  };
+
+  const rankings: RankingResult[] = [];
+
+  for (let index = 0; index < rankingUsers.length; index++) {
+    const user = rankingUsers[index];
+
+    if (!user) {
+      continue;
+    }
+
+    // 1人目は必ず1位
+    if (index === 0) {
+      rankings.push({
+        rank: 1,
+        ...user,
+      });
+
+      continue;
+    }
+
+    const previousUser = rankingUsers[index - 1];
+    const previousRanking = rankings[index - 1];
+
+    if (!previousUser || !previousRanking) {
+      continue;
+    }
+
+    // 合計・直近・2大会前が同じUserには同じrankを付与
+    const isSameRank =
+      user.totalEarnedPoint === previousUser.totalEarnedPoint &&
+      (user.eventScores[0]?.earnedPoint ?? 0) ===
+        (previousUser.eventScores[0]?.earnedPoint ?? 0) &&
+      (user.eventScores[1]?.earnedPoint ?? 0) ===
+        (previousUser.eventScores[1]?.earnedPoint ?? 0);
+
+    rankings.push({
+      rank: isSameRank
+        ? previousRanking.rank
+        : index + 1,
+      ...user,
+    });
+  }
+
+  return res.status(200).json({
+    success: true,
+    targetEvents: settledEvents.map((event) => ({
+      eventId: event.id,
+      name: event.name,
+      date: event.date,
+    })),
+    rankings,
   });
 });
 
