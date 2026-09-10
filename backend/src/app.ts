@@ -391,15 +391,16 @@ app.get("/events/:id", async (req, res) => {
 // ==============================
 // 予測保存・更新
 // ==============================
-app.post("/predictions", async (req, res) => {
-  const { userId, predictions } = req.body;
+app.post("/predictions", requireAuth, async (req, res) => {
+  const { predictions } = req.body;
+  const userId = res.locals.userId;
 
   // リクエスト内容を検証
-  if (!userId || !Array.isArray(predictions)) {
+  if (!Array.isArray(predictions)) {
     return res.status(400).json({
       success: false,
-       message: "Invalid request",
-      });
+      message: "Invalid request",
+    });
   }
 
   const invalidPoint = predictions.some(
@@ -627,35 +628,32 @@ app.post("/test-fight-2", async (req, res) => {
 // ==============================
 // 保存済み予想取得
 // ==============================
-app.get("/events/:id/predictions", async (req, res) => {
-  const eventId = Number(req.params.id);
-  const userId = Number(req.query.userId);
-
-  if (!userId) {
-    return res.status(400).json({
-      message: "userId is required",
-    });
-  }
-
-  const fights = await prisma.fight.findMany({
-    where: {
-      eventId: eventId,
-    },
-  });
-
-  const fightIds = fights.map((fight) => fight.id);
-
-  const predictions = await prisma.prediction.findMany({
-    where: {
-      userId: userId,
-      fightId: {
-        in: fightIds,
+app.get(
+  "/events/:id/predictions",
+  requireAuth,
+  async (req, res) => {
+    const eventId = Number(req.params.id);
+    const userId = res.locals.userId;
+    const fights = await prisma.fight.findMany({
+      where: {
+        eventId: eventId,
       },
-    },
-  });
+    });
 
-  return res.json(predictions);
-});
+    const fightIds = fights.map((fight) => fight.id);
+
+    const predictions = await prisma.prediction.findMany({
+      where: {
+        userId: userId,
+        fightId: {
+          in: fightIds,
+        },
+      },
+    });
+
+    return res.json(predictions);
+  }
+);
 
 
 // ==============================

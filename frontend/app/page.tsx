@@ -37,12 +37,14 @@ export default function Home() {
         </h2>
 
         <EventCard
+          eventId={1}
           eventName="RIZIN 33"
           mainCard="朝倉海 vs 佐々木ウルカ"
           eventDate="2026/08/10"
         />
 
         <EventCard
+          eventId={1}
           eventName="DEEP 101"
           mainCard="タイガ vs 火の鳥"
           eventDate="2026/08/25"

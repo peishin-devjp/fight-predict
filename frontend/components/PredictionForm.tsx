@@ -112,7 +112,6 @@ export default function PredictionForm(
 
     try{
       const data ={
-        userId: 1,
         predictions: matches.map((match: any) => (
           {
             fightId: match.id,
@@ -125,6 +124,7 @@ export default function PredictionForm(
 
       const response = await fetch("http://localhost:3001/predictions", {
         method: "POST",
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
         },

@@ -1,6 +1,7 @@
 import PredictionForm from "@/components/PredictionForm";
 import { notFound } from "next/navigation";
 import {formatDate} from "@/lib/formatDate";
+import { cookies } from "next/headers";
 
 type MatchPageProps = {
   params: Promise<{
@@ -20,10 +21,24 @@ export default async function MatchPage({
   
   const event = await response.json();
 
+  const cookieStore = await cookies();
+  const sessionToken = cookieStore.get("fp_session")?.value;
+
   const predictionResponse = await fetch(
-    `http://localhost:3001/events/${id}/predictions?userId=1`
+    `http://localhost:3001/events/${id}/predictions`,
+    {
+      headers: sessionToken
+        ? {
+            Cookie: `fp_session=${sessionToken}`,
+          }
+        : {},
+      cache: "no-store",
+    }
   );
-  const initialPredictions = await predictionResponse.json();
+
+  const initialPredictions = predictionResponse.ok
+    ? await predictionResponse.json()
+    : [];
 
   return (
     <div className="max-w-5xl mx-auto p-8">
