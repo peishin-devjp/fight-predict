@@ -3,6 +3,8 @@ import cors from "cors";
 import { PrismaClient } from "@prisma/client";
 import { calculatePredictionResult } from "./utils/calculatePredictionResult";
 import { calculateEventScore } from "./utils/calculateEventScore";
+import { normalizeEmail } from "./utils/normalizeEmail";
+import { hashPassword, verifyPassword } from "./utils/password";
 
 const MAX_EVENT_POINTS = 100;
 const MAX_FIGHT_POINTS = 50;
@@ -23,6 +25,146 @@ const sendError = (
 
 app.use(cors());
 app.use(express.json());
+
+
+// ==============================
+// User registration
+// ==============================
+app.post("/auth/register", async (req, res) => {
+  const { name, email, password } = req.body;
+
+  // 入力値を検証
+  if (
+    typeof name !== "string" ||
+    name.trim().length === 0
+  ) {
+    return sendError(res, 400, "Name is required");
+  }
+
+  if (
+    typeof email !== "string" ||
+    email.trim().length === 0
+  ) {
+    return sendError(res, 400, "Email is required");
+  }
+
+  if (
+    typeof password !== "string" ||
+    password.length === 0
+  ) {
+    return sendError(res, 400, "Password is required");
+  }
+
+  if (password.length < 8) {
+    return sendError(
+      res,
+      400,
+      "Password must be at least 8 characters"
+    );
+  }
+
+  // Emailをtrim + lowercaseで正規化
+  const normalizedEmail = normalizeEmail(email);
+
+  // 同じEmailのUserが存在しないか確認
+  const existingUser = await prisma.user.findUnique({
+    where: {
+      email: normalizedEmail,
+    },
+  });
+
+  if (existingUser) {
+    return sendError(res, 409, "Email is already registered");
+  }
+
+  // PasswordをArgon2idでhash化
+  const passwordHash = await hashPassword(password);
+
+  // 平文Passwordは保存しない
+  const user = await prisma.user.create({
+    data: {
+      name: name.trim(),
+      email: normalizedEmail,
+      passwordHash,
+    },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      emailVerifiedAt: true,
+      createdAt: true,
+    },
+  });
+
+  return res.status(201).json({
+    success: true,
+    user,
+  });
+});
+
+
+// ==============================
+// User login
+// ==============================
+app.post("/auth/login", async (req, res) => {
+  const { email, password } = req.body;
+
+  // 入力値を検証
+  if (
+    typeof email !== "string" ||
+    email.trim().length === 0
+  ) {
+    return sendError(res, 400, "Email is required");
+  }
+
+  if (
+    typeof password !== "string" ||
+    password.length === 0
+  ) {
+    return sendError(res, 400, "Password is required");
+  }
+
+  // Emailをtrim + lowercaseで正規化
+  const normalizedEmail = normalizeEmail(email);
+
+  // EmailからUserを検索
+  const user = await prisma.user.findUnique({
+    where: {
+      email: normalizedEmail,
+    },
+  });
+
+  // Userが存在しない場合も通常のログイン失敗として扱う
+  if (!user) {
+    return sendError(res, 401, "Invalid email or password");
+  }
+
+  // Google-only User等、Passwordを持たないUserも通常のログイン失敗
+  if (!user.passwordHash) {
+    return sendError(res, 401, "Invalid email or password");
+  }
+
+  // 保存済みArgon2 hashと入力Passwordを照合
+  const isPasswordValid = await verifyPassword(
+    user.passwordHash,
+    password
+  );
+
+  if (!isPasswordValid) {
+    return sendError(res, 401, "Invalid email or password");
+  }
+
+  return res.status(200).json({
+    success: true,
+    user: {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      emailVerifiedAt: user.emailVerifiedAt,
+      createdAt: user.createdAt,
+    },
+  });
+});
 
 
 // ==============================
@@ -308,19 +450,6 @@ app.post("/test-event", async (req, res) => {
   console.log(event);
 
   return res.status(200).json(event);
-});
-
-
-app.post("/test-user", async (req, res) => {
-  const user = await prisma.user.create({
-    data: {
-      name: "TEST USER",
-      email: "test@example.com",
-      password: "test-password",
-    },
-  });
-
-  return res.status(200).json(user);
 });
 
 
