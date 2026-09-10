@@ -1,10 +1,17 @@
 import express from "express";
 import cors from "cors";
+import cookieParser from "cookie-parser";
 import { PrismaClient } from "@prisma/client";
 import { calculatePredictionResult } from "./utils/calculatePredictionResult";
 import { calculateEventScore } from "./utils/calculateEventScore";
 import { normalizeEmail } from "./utils/normalizeEmail";
 import { hashPassword, verifyPassword } from "./utils/password";
+import {
+  generateSessionToken,
+  hashSessionToken,
+  SESSION_MAX_AGE_MS,
+} from "./utils/sessionToken";
+import { requireAuth } from "./middleware/requireAuth";
 
 const MAX_EVENT_POINTS = 100;
 const MAX_FIGHT_POINTS = 50;
@@ -23,8 +30,19 @@ const sendError = (
   });
 };
 
-app.use(cors());
+const frontendOrigin =
+  process.env.FRONTEND_ORIGIN ??
+  "http://localhost:3000";
+
+app.use(
+  cors({
+    origin: frontendOrigin,
+    credentials: true,
+  })
+);
+
 app.use(express.json());
+app.use(cookieParser());
 
 
 // ==============================
@@ -154,6 +172,30 @@ app.post("/auth/login", async (req, res) => {
     return sendError(res, 401, "Invalid email or password");
   }
 
+  // Session Tokenを生成し、DBにはhashのみ保存
+  const sessionToken = generateSessionToken();
+  const tokenHash = hashSessionToken(sessionToken);
+  const expiresAt = new Date(
+    Date.now() + SESSION_MAX_AGE_MS
+  );
+
+  await prisma.session.create({
+    data: {
+      tokenHash,
+      userId: user.id,
+      expiresAt,
+    },
+  });
+
+  // raw Session TokenはHttpOnly CookieとしてBrowserへ渡す
+  res.cookie("fp_session", sessionToken, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    maxAge: SESSION_MAX_AGE_MS,
+  });
+
   return res.status(200).json({
     success: true,
     user: {
@@ -163,6 +205,69 @@ app.post("/auth/login", async (req, res) => {
       emailVerifiedAt: user.emailVerifiedAt,
       createdAt: user.createdAt,
     },
+  });
+});
+
+
+// ==============================
+// Current authenticated user
+// ==============================
+app.get("/auth/me", requireAuth, async (_req, res) => {
+  const userId = res.locals.userId;
+
+  const user = await prisma.user.findUnique({
+    where: {
+      id: userId,
+    },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+    },
+  });
+
+  if (!user) {
+    return sendError(res, 401, "Unauthorized");
+  }
+
+  return res.status(200).json({
+    success: true,
+    user,
+  });
+});
+
+
+// ==============================
+// User logout
+// ==============================
+app.post("/auth/logout", async (req, res) => {
+  const sessionToken = req.cookies?.fp_session;
+
+  if (
+    typeof sessionToken === "string" &&
+    sessionToken.length > 0
+  ) {
+    const tokenHash = hashSessionToken(sessionToken);
+
+    // 現在のCookieに対応するSessionを削除
+    await prisma.session.deleteMany({
+      where: {
+        tokenHash,
+      },
+    });
+  }
+
+  // BrowserのSession Cookieを削除
+  res.clearCookie("fp_session", {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+  });
+
+  return res.status(200).json({
+    success: true,
+    message: "Logged out",
   });
 });
 
