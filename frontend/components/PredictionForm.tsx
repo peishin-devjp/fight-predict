@@ -135,6 +135,8 @@ export default function PredictionForm(
 
       if (response.ok) {
         showMessage("予想を確定しました。");
+      } else if (response.status === 401) {
+        showMessage("予想を保存するにはログインが必要です。");
       } else {
         showMessage("予想の保存に失敗しました。");
       }

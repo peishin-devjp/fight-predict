@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import AuthStatus from "@/components/AuthStatus";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -29,9 +30,11 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col">
         <header className="border-b p-4">
-           Fight Predict
+          <div className="max-w-5xl mx-auto flex items-center justify-between">
+            <span>Fight Predict</span>
+            <AuthStatus />
+          </div>
         </header>
-
         <main className="flex-1">
           {children}
         </main>
