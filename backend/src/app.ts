@@ -12,6 +12,13 @@ import {
   SESSION_MAX_AGE_MS,
 } from "./utils/sessionToken";
 import { requireAuth } from "./middleware/requireAuth";
+import {
+  findValidEmailVerificationToken,
+  issueEmailVerificationToken,
+} from "./services/emailVerificationService";
+import {
+  sendVerificationEmail,
+} from "./services/emailService";
 
 const MAX_EVENT_POINTS = 100;
 const MAX_FIGHT_POINTS = 50;
@@ -82,23 +89,66 @@ app.post("/auth/register", async (req, res) => {
   }
 
   // Emailをtrim + lowercaseで正規化
-  const normalizedEmail = normalizeEmail(email);
+  const normalizedEmail =
+    normalizeEmail(email);
 
-  // 同じEmailのUserが存在しないか確認
-  const existingUser = await prisma.user.findUnique({
-    where: {
-      email: normalizedEmail,
-    },
-  });
+  // 同じEmailのUserを確認
+  const existingUser =
+    await prisma.user.findUnique({
+      where: {
+        email: normalizedEmail,
+      },
+    });
 
+  // 未確認UserならUser情報は変更せず、Tokenだけ再発行
+  if (
+    existingUser &&
+    existingUser.emailVerifiedAt === null
+  ) {
+    const issuedToken =
+      await issueEmailVerificationToken(
+        prisma,
+        existingUser.id
+      );
+
+    try {
+      await sendVerificationEmail({
+        to: existingUser.email,
+        rawToken: issuedToken.rawToken,
+      });
+    } catch (error) {
+      console.error(
+        "Verification email sending failed"
+      );
+
+      return sendError(
+        res,
+        503,
+        "Unable to send verification email"
+      );
+    }
+
+    return res.status(200).json({
+      success: true,
+      message:
+        "If registration can proceed, a verification email has been sent.",
+    });
+  }
+
+  // 確認済みUserが存在する場合も存在状況を過剰に漏らさない
   if (existingUser) {
-    return sendError(res, 409, "Email is already registered");
+    return res.status(200).json({
+      success: true,
+      message:
+        "If registration can proceed, a verification email has been sent.",
+    });
   }
 
   // PasswordをArgon2idでhash化
-  const passwordHash = await hashPassword(password);
+  const passwordHash =
+    await hashPassword(password);
 
-  // 平文Passwordは保存しない
+  // 新規User作成
   const user = await prisma.user.create({
     data: {
       name: name.trim(),
@@ -114,9 +164,93 @@ app.post("/auth/register", async (req, res) => {
     },
   });
 
-  return res.status(201).json({
+  // Verification Token発行
+  const issuedToken =
+    await issueEmailVerificationToken(
+      prisma,
+      user.id
+    );
+
+  try {
+    await sendVerificationEmail({
+      to: user.email,
+      rawToken: issuedToken.rawToken,
+    });
+  } catch (error) {
+    console.error(
+      "Verification email sending failed"
+    );
+
+    return sendError(
+      res,
+      503,
+      "Unable to send verification email"
+    );
+  }
+
+  return res.status(200).json({
     success: true,
     user,
+    message:
+      "If registration can proceed, a verification email has been sent.",
+  });
+});
+
+
+// ==============================
+// Verify email
+// ==============================
+app.post("/auth/verify-email", async (req, res) => {
+  const { token } = req.body;
+
+  // Token入力を検証
+  if (
+    typeof token !== "string" ||
+    token.length === 0
+  ) {
+    return sendError(
+      res,
+      400,
+      "Verification token is required"
+    );
+  }
+
+  // raw Tokenをhash化して有効Tokenを検索
+  const verificationToken =
+    await findValidEmailVerificationToken(
+      prisma,
+      token
+    );
+
+  if (!verificationToken) {
+    return sendError(
+      res,
+      400,
+      "Invalid or expired verification token"
+    );
+  }
+
+  // Email確認済み更新とToken削除を同時に行う
+  await prisma.$transaction([
+    prisma.user.update({
+      where: {
+        id: verificationToken.userId,
+      },
+      data: {
+        emailVerifiedAt: new Date(),
+      },
+    }),
+
+    prisma.emailVerificationToken.delete({
+      where: {
+        id: verificationToken.id,
+      },
+    }),
+  ]);
+
+  return res.status(200).json({
+    success: true,
+    message: "Email verified successfully",
   });
 });
 
@@ -170,6 +304,15 @@ app.post("/auth/login", async (req, res) => {
 
   if (!isPasswordValid) {
     return sendError(res, 401, "Invalid email or password");
+  }
+
+  // Email未確認Userはログイン不可
+  if (user.emailVerifiedAt === null) {
+    return res.status(401).json({
+      success: false,
+      code: "EMAIL_NOT_VERIFIED",
+      message: "Unable to log in",
+    });
   }
 
   // Session Tokenを生成し、DBにはhashのみ保存
@@ -235,6 +378,82 @@ app.get("/auth/me", requireAuth, async (_req, res) => {
     user,
   });
 });
+
+
+// ==============================
+// Resend verification email
+// ==============================
+app.post(
+  "/auth/resend-verification",
+  async (req, res) => {
+    const { email } = req.body;
+
+    if (
+      typeof email !== "string" ||
+      email.trim().length === 0
+    ) {
+      return sendError(
+        res,
+        400,
+        "Email is required"
+      );
+    }
+
+    const normalizedEmail =
+      normalizeEmail(email);
+
+    const user =
+      await prisma.user.findUnique({
+        where: {
+          email: normalizedEmail,
+        },
+      });
+
+    const commonResponse = {
+      success: true,
+      message:
+        "If verification is required, a verification email has been sent.",
+    };
+
+    // 未登録Email・確認済みUserは同じレスポンス
+    if (
+      !user ||
+      user.emailVerifiedAt !== null
+    ) {
+      return res
+        .status(200)
+        .json(commonResponse);
+    }
+
+    // 未確認UserのみToken再発行
+    const issuedToken =
+      await issueEmailVerificationToken(
+        prisma,
+        user.id
+      );
+
+    try {
+      await sendVerificationEmail({
+        to: user.email,
+        rawToken: issuedToken.rawToken,
+      });
+    } catch (error) {
+      console.error(
+        "Verification email sending failed"
+      );
+
+      return sendError(
+        res,
+        503,
+        "Unable to send verification email"
+      );
+    }
+
+    return res
+      .status(200)
+      .json(commonResponse);
+  }
+);
 
 
 // ==============================

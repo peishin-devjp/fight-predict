@@ -10,7 +10,7 @@
     "module": "commonjs", //nodenext から変更
     "target": "esnext",
     "esModuleInterop": true,
-    "types": [],
+    "types": ["node"],
     // For nodejs:
     // "lib": ["esnext"],
     // "types": ["node"],
