@@ -11,6 +11,9 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isEmailNotVerified, setIsEmailNotVerified] = useState(false);
+  const [resendMessage, setResendMessage] = useState("");
+  const [isResending, setIsResending] = useState(false);
 
   const handleSubmit = async (
     event: FormEvent<HTMLFormElement>
@@ -18,6 +21,8 @@ export default function LoginPage() {
     event.preventDefault();
 
     setErrorMessage("");
+    setResendMessage("");
+    setIsEmailNotVerified(false);
     setIsSubmitting(true);
 
     try {
@@ -37,9 +42,30 @@ export default function LoginPage() {
       );
 
       if (!response.ok) {
+        let result: {
+          code?: string;
+        } = {};
+
+        try {
+          result = await response.json();
+        } catch {
+          // JSONでないエラー応答は通常エラーとして扱う
+        }
+
+        if (result.code === "EMAIL_NOT_VERIFIED") {
+          setIsEmailNotVerified(true);
+
+          setErrorMessage(
+            "メールアドレスの確認が完了していません。"
+          );
+
+          return;
+        }
+
         setErrorMessage(
           "メールアドレスまたはパスワードが正しくありません。"
         );
+
         return;
       }
       
@@ -55,6 +81,55 @@ export default function LoginPage() {
       );
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleResendVerification = async () => {
+    if (!email.trim()) {
+      setResendMessage(
+        "メールアドレスを入力してください。"
+      );
+      return;
+    }
+
+    setResendMessage("");
+    setIsResending(true);
+
+    try {
+      const response = await fetch(
+        "http://localhost:3001/auth/resend-verification",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            email,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        setResendMessage(
+          "確認メールの送信に失敗しました。時間をおいて再度お試しください。"
+        );
+        return;
+      }
+
+      setResendMessage(
+        "確認メールを送信しました。"
+      );
+    } catch (error) {
+      console.error(
+        "Error resending verification email:",
+        error
+      );
+
+      setResendMessage(
+        "確認メールの送信に失敗しました。時間をおいて再度お試しください。"
+      );
+    } finally {
+      setIsResending(false);
     }
   };
 
@@ -111,9 +186,30 @@ export default function LoginPage() {
         </div>
 
         {errorMessage && (
-          <p className="text-red-600">
-            {errorMessage}
-          </p>
+          <div className="space-y-2">
+            <p className="text-red-600">
+              {errorMessage}
+            </p>
+
+            {isEmailNotVerified && (
+              <button
+                type="button"
+                onClick={handleResendVerification}
+                disabled={isResending}
+                className="text-sm underline disabled:opacity-50"
+              >
+                {isResending
+                  ? "確認メールを送信中..."
+                  : "確認メールを再送"}
+              </button>
+            )}
+
+            {resendMessage && (
+              <p className="text-sm">
+                {resendMessage}
+              </p>
+            )}
+          </div>
         )}
 
         <button

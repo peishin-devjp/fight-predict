@@ -70,19 +70,12 @@ export default function RegisterPage() {
     return (
       <div className="max-w-md mx-auto p-8">
         <h1 className="text-2xl font-bold mb-6">
-          新規登録
+          確認メールを送信しました
         </h1>
 
-        <p className="mb-4">
-          登録しました。ログインしてください。
+        <p>
+          確認メールを送信しました。メール内のリンクから登録を完了してください。
         </p>
-
-        <Link
-          href="/login"
-          className="inline-block rounded bg-black px-4 py-2 text-white"
-        >
-          ログインへ
-        </Link>
       </div>
     );
   }
