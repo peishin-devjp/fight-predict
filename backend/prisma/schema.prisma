@@ -36,6 +36,7 @@ model User {
   sessions        Session[]
   predictions     Prediction[]
   emailVerificationToken EmailVerificationToken?
+  passwordResetToken     PasswordResetToken?
 }
 
 model Event {
@@ -84,6 +85,16 @@ model Session {
 }
 
 model EmailVerificationToken {
+  id        Int      @id @default(autoincrement())
+  tokenHash String   @unique
+  userId    Int      @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model PasswordResetToken {
   id        Int      @id @default(autoincrement())
   tokenHash String   @unique
   userId    Int      @unique
