@@ -7,8 +7,8 @@
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {
+    "@phc/format": "^1.0.0",
     "@prisma/client": "^6.19.3",
-    "argon2": "^0.45.1",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
     "express": "^5.2.1",
@@ -20,6 +20,7 @@
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/node": "^26.1.1",
+    "@types/phc__format": "^1.0.1",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3"
   }

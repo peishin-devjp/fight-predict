@@ -17,8 +17,13 @@ import {
   issueEmailVerificationToken,
 } from "./services/emailVerificationService";
 import {
+  sendPasswordResetEmail,
   sendVerificationEmail,
 } from "./services/emailService";
+import {
+  findValidPasswordResetToken,
+  issuePasswordResetToken,
+} from "./services/passwordResetService";
 
 const MAX_EVENT_POINTS = 100;
 const MAX_FIGHT_POINTS = 50;
@@ -253,6 +258,160 @@ app.post("/auth/verify-email", async (req, res) => {
     message: "Email verified successfully",
   });
 });
+
+
+// ==============================
+// パスワード再設定メール送信
+// ==============================
+app.post(
+  "/auth/forgot-password",
+  async (req, res) => {
+    try {
+      const { email } = req.body;
+
+      if (
+        typeof email !== "string" ||
+        email.trim().length === 0
+      ) {
+        return sendError(
+          res,
+          400,
+          "Email is required"
+        );
+      }
+
+      const normalizedEmail =
+        normalizeEmail(email);
+
+      const successResponse = {
+        success: true,
+        message:
+          "If the account exists, a password reset email has been sent.",
+      };
+
+      const user = await prisma.user.findUnique({
+        where: {
+          email: normalizedEmail,
+        },
+      });
+
+      // 未登録Emailでも同じレスポンスを返す
+      if (!user) {
+        return res.status(200).json(
+          successResponse
+        );
+      }
+
+      const { rawToken } =
+        await issuePasswordResetToken(
+          prisma,
+          user.id
+        );
+
+      await sendPasswordResetEmail({
+        to: user.email,
+        rawToken,
+      });
+
+      return res.status(200).json(
+        successResponse
+      );
+    } catch (error) {
+      console.error(
+        "Error requesting password reset:",
+        error
+      );
+
+      return res.status(503).json({
+        success: false,
+        message:
+          "Unable to process password reset request",
+      });
+    }
+  }
+);
+
+
+// ==============================
+// パスワード再設定
+// ==============================
+app.post(
+  "/auth/reset-password",
+  async (req, res) => {
+    try {
+      const { token, newPassword } = req.body;
+
+      // 入力値をBackendで検証
+      if (
+        typeof token !== "string" ||
+        !token ||
+        typeof newPassword !== "string" ||
+        newPassword.length < 8
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid reset request",
+        });
+      }
+
+      const resetToken =
+        await findValidPasswordResetToken(
+          prisma,
+          token
+        );
+
+      if (!resetToken) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Invalid or expired password reset token",
+        });
+      }
+
+      const passwordHash =
+        await hashPassword(newPassword);
+
+      await prisma.$transaction([
+        prisma.user.update({
+          where: {
+            id: resetToken.userId,
+          },
+          data: {
+            passwordHash,
+          },
+        }),
+
+        prisma.passwordResetToken.delete({
+          where: {
+            id: resetToken.id,
+          },
+        }),
+
+        prisma.session.deleteMany({
+          where: {
+            userId: resetToken.userId,
+          },
+        }),
+      ]);
+
+      return res.status(200).json({
+        success: true,
+        message:
+          "Password has been reset successfully",
+      });
+    } catch (error) {
+      console.error(
+        "Error resetting password:",
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        message: "Unable to reset password",
+      });
+    }
+  }
+);
 
 
 // ==============================

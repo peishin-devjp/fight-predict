@@ -64,3 +64,57 @@ export const sendVerificationEmail = async ({
     );
   }
 };
+
+
+type SendPasswordResetEmailParams = {
+  to: string;
+  rawToken: string;
+};
+
+export const sendPasswordResetEmail = async ({
+  to,
+  rawToken,
+}: SendPasswordResetEmailParams): Promise<void> => {
+  const apiKey =
+    getRequiredEnv("RESEND_API_KEY");
+
+  const emailFrom =
+    getRequiredEnv("EMAIL_FROM");
+
+  const frontendOrigin =
+    getRequiredEnv("FRONTEND_ORIGIN");
+
+  const resetUrl = new URL(
+    "/reset-password",
+    frontendOrigin
+  );
+
+  resetUrl.searchParams.set(
+    "token",
+    rawToken
+  );
+
+  const resend = new Resend(apiKey);
+
+  const { error } = await resend.emails.send({
+    from: emailFrom,
+    to,
+    subject: "Fight Predict パスワード再設定",
+    text: [
+      "Fight Predictのパスワード再設定を受け付けました。",
+      "",
+      "以下のURLからパスワードを再設定してください。",
+      resetUrl.toString(),
+      "",
+      "このURLの有効期限は1時間です。",
+      "",
+      "この操作に心当たりがない場合は、このメールを無視してください。",
+    ].join("\n"),
+  });
+
+  if (error) {
+    throw new Error(
+      "Failed to send password reset email"
+    );
+  }
+};
