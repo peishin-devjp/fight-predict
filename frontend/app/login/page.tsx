@@ -223,6 +223,15 @@ export default function LoginPage() {
         </button>
       </form>
 
+      <p className="mt-4 text-sm">
+        <Link
+          href="/forgot-password"
+          className="underline"
+        >
+          パスワードを忘れた方
+        </Link>
+      </p>
+
       <p className="mt-6 text-sm">
         アカウントをお持ちでない方は{" "}
         <Link
