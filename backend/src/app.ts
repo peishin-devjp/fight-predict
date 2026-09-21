@@ -13,6 +13,14 @@ import {
 } from "./utils/sessionToken";
 import { requireAuth } from "./middleware/requireAuth";
 import {
+  forgotPasswordRateLimiter,
+  loginRateLimiter,
+  registerRateLimiter,
+  resetPasswordRateLimiter,
+  verificationResendHourRateLimiter,
+  verificationResendMinuteRateLimiter,
+} from "./middleware/authRateLimit";
+import {
   findValidEmailVerificationToken,
   issueEmailVerificationToken,
 } from "./services/emailVerificationService";
@@ -25,11 +33,14 @@ import {
   issuePasswordResetToken,
 } from "./services/passwordResetService";
 
+
 const MAX_EVENT_POINTS = 100;
 const MAX_FIGHT_POINTS = 50;
 
 const app = express();
 const prisma = new PrismaClient();
+
+// TODO: 本番Deploy先のReverse Proxy構成確定後、trust proxyを必要な範囲だけ設定する
 
 const sendError = (
   res: express.Response,
@@ -60,7 +71,7 @@ app.use(cookieParser());
 // ==============================
 // User registration
 // ==============================
-app.post("/auth/register", async (req, res) => {
+app.post("/auth/register", registerRateLimiter, async (req, res) => {
   const { name, email, password } = req.body;
 
   // 入力値を検証
@@ -265,6 +276,7 @@ app.post("/auth/verify-email", async (req, res) => {
 // ==============================
 app.post(
   "/auth/forgot-password",
+  forgotPasswordRateLimiter,
   async (req, res) => {
     try {
       const { email } = req.body;
@@ -337,6 +349,7 @@ app.post(
 // ==============================
 app.post(
   "/auth/reset-password",
+  resetPasswordRateLimiter,
   async (req, res) => {
     try {
       const { token, newPassword } = req.body;
@@ -417,7 +430,7 @@ app.post(
 // ==============================
 // User login
 // ==============================
-app.post("/auth/login", async (req, res) => {
+app.post("/auth/login", loginRateLimiter, async (req, res) => {
   const { email, password } = req.body;
 
   // 入力値を検証
@@ -467,6 +480,9 @@ app.post("/auth/login", async (req, res) => {
 
   // Email未確認Userはログイン不可
   if (user.emailVerifiedAt === null) {
+    // Password認証は成功しているためRate Limitの失敗回数には含めない
+    res.locals.loginFailureReason = "EMAIL_NOT_VERIFIED";
+
     return res.status(401).json({
       success: false,
       code: "EMAIL_NOT_VERIFIED",
@@ -544,6 +560,8 @@ app.get("/auth/me", requireAuth, async (_req, res) => {
 // ==============================
 app.post(
   "/auth/resend-verification",
+  verificationResendMinuteRateLimiter,
+  verificationResendHourRateLimiter,
   async (req, res) => {
     const { email } = req.body;
 

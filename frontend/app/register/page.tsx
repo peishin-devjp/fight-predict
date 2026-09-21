@@ -48,6 +48,13 @@ export default function RegisterPage() {
       );
 
       if (!response.ok) {
+        if (response.status === 429) {
+          setErrorMessage(
+            "登録試行回数が多すぎます。しばらく時間をおいてから再度お試しください。"
+          );
+          return;
+        }
+
         setErrorMessage(
           "新規登録に失敗しました。入力内容をご確認ください。"
         );

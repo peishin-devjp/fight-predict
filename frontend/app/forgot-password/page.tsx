@@ -35,6 +35,13 @@ export default function ForgotPasswordPage() {
       );
 
       if (!response.ok) {
+        if (response.status === 429) {
+          setErrorMessage(
+            "再設定の試行回数が多すぎます。しばらく時間をおいてから再度お試しください。"
+          );
+          return;
+        }
+
         setErrorMessage(
           "パスワード再設定メールの送信に失敗しました。時間をおいて再度お試しください。"
         );

@@ -46,6 +46,14 @@ export default function LoginPage() {
           code?: string;
         } = {};
 
+        if (response.status === 429) {
+          setErrorMessage(
+            "ログイン試行回数が多すぎます。しばらく時間をおいてから再度お試しください。"
+          );
+
+          return;
+        }
+
         try {
           result = await response.json();
         } catch {
@@ -110,6 +118,14 @@ export default function LoginPage() {
       );
 
       if (!response.ok) {
+        if (response.status === 429) {
+          setResendMessage(
+            "再送回数が多すぎます。しばらく時間をおいてから再度お試しください。"
+          );
+
+          return;
+        }
+
         setResendMessage(
           "確認メールの送信に失敗しました。時間をおいて再度お試しください。"
         );
