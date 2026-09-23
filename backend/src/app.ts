@@ -12,6 +12,7 @@ import {
   SESSION_MAX_AGE_MS,
 } from "./utils/sessionToken";
 import { requireAuth } from "./middleware/requireAuth";
+import { validateOrigin } from "./middleware/validateOrigin";
 import {
   forgotPasswordRateLimiter,
   loginRateLimiter,
@@ -66,6 +67,7 @@ app.use(
 
 app.use(express.json());
 app.use(cookieParser());
+app.use(validateOrigin);
 
 
 // ==============================
