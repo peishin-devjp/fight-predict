@@ -12,6 +12,7 @@ import {
   SESSION_MAX_AGE_MS,
 } from "./utils/sessionToken";
 import { requireAuth } from "./middleware/requireAuth";
+import { requireAdmin } from "./middleware/requireAdmin";
 import { validateOrigin } from "./middleware/validateOrigin";
 import {
   forgotPasswordRateLimiter,
@@ -940,87 +941,89 @@ app.post("/predictions", requireAuth, async (req, res) => {
 
 // ==============================
 // テストデータ作成用API
-// TODO: 本番運用前に削除する
+// productionではRoute自体を登録しない
 // ==============================
-app.post("/test-event", async (req, res) => {
-  const event = await prisma.event.create({
-    data: {
-      name: "TEST EVENT",
-      date: new Date("2026-09-01T18:00:00"),
-      deadline: new Date("2026-09-01T17:00:00"),
-    },
+if (process.env.NODE_ENV !== "production") {
+  app.post("/test-event", async (req, res) => {
+    const event = await prisma.event.create({
+      data: {
+        name: "TEST EVENT",
+        date: new Date("2026-09-01T18:00:00"),
+        deadline: new Date("2026-09-01T17:00:00"),
+      },
+    });
+
+    console.log(event);
+
+    return res.status(200).json(event);
   });
 
-  console.log(event);
 
-  return res.status(200).json(event);
-});
+  app.post("/test-fighters", async (req, res) => {
+    const fighter1 = await prisma.fighter.create({
+      data: {
+        name: "アレックス・ペレイラ",
+      },
+    });
 
+    const fighter2 = await prisma.fighter.create({
+      data: {
+        name: "マゴメド・アンカラエフ",
+      },
+    });
 
-app.post("/test-fighters", async (req, res) => {
-  const fighter1 = await prisma.fighter.create({
-    data: {
-      name: "アレックス・ペレイラ",
-    },
+    return res.status(200).json({
+      fighter1,
+      fighter2,
+    });
   });
 
-  const fighter2 = await prisma.fighter.create({
-    data: {
-      name: "マゴメド・アンカラエフ",
-    },
+
+  app.post("/test-fight", async (req, res) => {
+    const fight = await prisma.fight.create({
+      data: {
+        eventId: 1,
+        fighter1Id: 1,
+        fighter2Id: 2,
+      },
+    });
+
+    return res.status(200).json(fight);
   });
 
-  return res.status(200).json({
-    fighter1,
-    fighter2,
-  });
-});
 
+  app.post("/test-fighters-2", async (req, res) => {
+    const fighter3 = await prisma.fighter.create({
+      data: {
+        name: "TEST FIGHTER 3",
+      },
+    });
 
-app.post("/test-fight", async (req, res) => {
-  const fight = await prisma.fight.create({
-    data: {
-      eventId: 1,
-      fighter1Id: 1,
-      fighter2Id: 2,
-    },
-  });
+    const fighter4 = await prisma.fighter.create({
+      data: {
+        name: "TEST FIGHTER 4",
+      },
+    });
 
-  return res.status(200).json(fight);
-});
-
-
-app.post("/test-fighters-2", async (req, res) => {
-  const fighter3 = await prisma.fighter.create({
-    data: {
-      name: "TEST FIGHTER 3",
-    },
+    return res.status(200).json({
+      fighter3,
+      fighter4,
+    });
   });
 
-  const fighter4 = await prisma.fighter.create({
-    data: {
-      name: "TEST FIGHTER 4",
-    },
+
+  app.post("/test-fight-2", async (req, res) => {
+    const fight = await prisma.fight.create({
+      data: {
+        eventId: 1,
+        fighter1Id: 3,
+        fighter2Id: 4,
+      },
+    });
+
+    return res.status(200).json(fight);
   });
-
-  return res.status(200).json({
-    fighter3,
-    fighter4,
-  });
-});
-
-
-app.post("/test-fight-2", async (req, res) => {
-  const fight = await prisma.fight.create({
-    data: {
-      eventId: 1,
-      fighter1Id: 3,
-      fighter2Id: 4,
-    },
-  });
-
-  return res.status(200).json(fight);
-});
+}
 
 
 // ==============================
@@ -1057,97 +1060,102 @@ app.get(
 // ==============================
 // Fight result update
 // ==============================
-app.patch("/fights/:id/result", async (req, res) => {
-  const fightId = Number(req.params.id);
+app.patch(
+  "/fights/:id/result",
+  requireAuth,
+  requireAdmin,
+  async (req, res) => {
+    const fightId = Number(req.params.id);
 
-  if (!Number.isInteger(fightId) || fightId <= 0) {
-    return sendError(res, 400, "Invalid fight ID");
-  }
-
-  const fight = await prisma.fight.findUnique({
-    where: {
-      id: fightId,
-    },
-  });
-
-  if (!fight) {
-    return sendError(res, 404, "Fight not found");
-  }
-
-  const { status, winnerId, method } = req.body;
-
-  const allowedStatuses = ["scheduled", "finished", "draw", "no_contest", "cancelled"];
-
-  if (!allowedStatuses.includes(status)) {
-    return sendError(res, 400, "Invalid status");
-  }
-
-  if (status === "finished") {
-    if (winnerId == null) {
-      return sendError(
-        res,
-        400,
-        "winnerId is required when status is finished"
-      );
+    if (!Number.isInteger(fightId) || fightId <= 0) {
+      return sendError(res, 400, "Invalid fight ID");
     }
 
-    if (method !== "decision" && method !== "finish") {
-      return sendError(
-        res,
-        400,
-        "method is required when status is finished"
-      );
+    const fight = await prisma.fight.findUnique({
+      where: {
+        id: fightId,
+      },
+    });
+
+    if (!fight) {
+      return sendError(res, 404, "Fight not found");
     }
 
-    if (winnerId !== fight.fighter1Id && winnerId !== fight.fighter2Id) {
-      return sendError(
-        res,
-        400,
-        "winnerId must be either fighter1Id or fighter2Id"
-      );
+    const { status, winnerId, method } = req.body;
+
+    const allowedStatuses = ["scheduled", "finished", "draw", "no_contest", "cancelled"];
+
+    if (!allowedStatuses.includes(status)) {
+      return sendError(res, 400, "Invalid status");
     }
+
+    if (status === "finished") {
+      if (winnerId == null) {
+        return sendError(
+          res,
+          400,
+          "winnerId is required when status is finished"
+        );
+      }
+
+      if (method !== "decision" && method !== "finish") {
+        return sendError(
+          res,
+          400,
+          "method is required when status is finished"
+        );
+      }
+
+      if (winnerId !== fight.fighter1Id && winnerId !== fight.fighter2Id) {
+        return sendError(
+          res,
+          400,
+          "winnerId must be either fighter1Id or fighter2Id"
+        );
+      }
+    }
+
+    if(
+      status === "scheduled" ||
+      status === "draw" ||
+      status === "no_contest" ||
+      status === "cancelled"
+    ) {
+      if (winnerId !== null) {
+        return sendError(
+          res,
+          400,
+          "winnerId must be null when status is not finished"
+        );
+      }
+      
+      if (method !== null) {
+        return sendError(
+          res,
+          400,
+          "method must be null when status is not finished"
+        );
+      }
+    }
+
+    const updatedFight = await prisma.fight.update({
+      where: {
+        id: fightId,
+      },
+      data: {
+        status,
+        winnerId: winnerId ?? null,
+        method: method ?? null,
+      },
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Fight result updated",
+      fight: updatedFight,
+    });
   }
-
-  if(
-    status === "scheduled" ||
-    status === "draw" ||
-    status === "no_contest" ||
-    status === "cancelled"
-  ) {
-    if (winnerId !== null) {
-      return sendError(
-        res,
-        400,
-        "winnerId must be null when status is not finished"
-      );
-    }
-    
-    if (method !== null) {
-      return sendError(
-        res,
-        400,
-        "method must be null when status is not finished"
-      );
-    }
-  }
-
-  const updatedFight = await prisma.fight.update({
-    where: {
-      id: fightId,
-    },
-    data: {
-      status,
-      winnerId: winnerId ?? null,
-      method: method ?? null,
-    },
-  });
-
-  return res.status(200).json({
-    success: true,
-    message: "Fight result updated",
-    fight: updatedFight,
-  });
-});
+);
 
 
 // ==============================

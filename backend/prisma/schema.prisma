@@ -20,18 +20,24 @@ enum FightStatus {
   cancelled
 }
 
+enum UserRole {
+  USER
+  ADMIN
+}
+
 enum FightMethod {
   decision
   finish
 }
 
 model User {
-  id              Int          @id @default(autoincrement())
+  id              Int         @id @default(autoincrement())
   name            String
-  email           String       @unique
+  email           String      @unique
   passwordHash    String?
   emailVerifiedAt DateTime?
-  createdAt       DateTime     @default(now())
+  role            UserRole    @default(USER)
+  createdAt       DateTime    @default(now())
 
   sessions        Session[]
   predictions     Prediction[]
