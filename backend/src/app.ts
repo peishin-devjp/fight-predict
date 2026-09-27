@@ -852,6 +852,28 @@ app.post("/predictions", requireAuth, async (req, res) => {
     });
   }
 
+  // BackendでPrediction締切を強制
+  const event = await prisma.event.findUnique({
+    where: {
+      id: eventId,
+    },
+  });
+
+  if (!event) {
+    return res.status(400).json({
+      success: false,
+      message: "Event not found",
+    });
+  }
+
+  if (new Date() >= event.deadline) {
+    return res.status(403).json({
+      success: false,
+      code: "PREDICTION_DEADLINE_PASSED",
+      message: "Prediction deadline has passed",
+    });
+  }
+
   // 対象大会の試合と既存Predictionを取得
   const eventFights = await prisma.fight.findMany({
     where: {
@@ -1087,6 +1109,18 @@ app.patch(
 
     if (!allowedStatuses.includes(status)) {
       return sendError(res, 400, "Invalid status");
+    }
+
+    if (
+      fight.fighter2Id === null &&
+      status !== "scheduled" &&
+      status !== "cancelled"
+    ) {
+      return sendError(
+        res,
+        400,
+        "Fight cannot have this status while fighter2 is unset"
+      );
     }
 
     if (status === "finished") {
