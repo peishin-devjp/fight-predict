@@ -744,11 +744,30 @@ app.get("/events/:id", async (req, res) => {
     });
   }
 
-  const fights = await prisma.fight.findMany({
+  const allFights = await prisma.fight.findMany({
     where: {
       eventId: eventId,
     },
+    orderBy: {
+      id: "asc",
+    },
   });
+
+  // fightOrderが設定された新形式のEventでは、
+  // fightOrder=nullの旧カードを現在の大会カードから除外する。
+  // 全Fightがnullの既存Eventは、移行互換のため従来どおり表示する。
+  const hasOrderedFights = allFights.some(
+    (fight) => fight.fightOrder !== null
+  );
+
+  const fights = hasOrderedFights
+    ? allFights
+        .filter((fight) => fight.fightOrder !== null)
+        .sort(
+          (a, b) =>
+            (a.fightOrder as number) - (b.fightOrder as number)
+        )
+    : allFights;
 
   const matches = await Promise.all(
     fights.map(async (fight, index) => {
@@ -766,7 +785,8 @@ app.get("/events/:id", async (req, res) => {
 
       return {
         id: fight.id,
-        matchCard: `第${index + 1}試合`,
+        fightOrder: fight.fightOrder,
+        matchCard: `第${fight.fightOrder ?? index + 1}試合`,
         playerName1: fighter1?.name,
         playerName2: fighter2?.name,
         playerId1: fight.fighter1Id,

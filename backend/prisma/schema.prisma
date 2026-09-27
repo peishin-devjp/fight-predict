@@ -58,6 +58,7 @@ model Fight {
   eventId   Int
   fighter1Id Int
   fighter2Id Int?
+  fightOrder Int?
 
   status     FightStatus @default(scheduled)
   winnerId   Int?
@@ -68,6 +69,7 @@ model Fight {
   winner     Fighter?    @relation("FightWinner", fields: [winnerId], references: [id])
 
   createdAt DateTime @default(now())
+  @@unique([eventId, fightOrder])
 }
 
 model Fighter {
