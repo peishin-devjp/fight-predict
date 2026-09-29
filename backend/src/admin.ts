@@ -669,6 +669,426 @@ const showFighterMenu = async (): Promise<void> => {
   }
 };
 
+
+
+const parsePositiveInteger = (value: string): number | null => {
+  const trimmed = value.trim();
+  const parsed = Number(trimmed);
+
+  if (
+    !Number.isInteger(parsed) ||
+    parsed <= 0 ||
+    String(parsed) !== trimmed
+  ) {
+    return null;
+  }
+
+  return parsed;
+};
+
+const formatFighter = (fighter: { id: number; name: string } | null): string =>
+  fighter ? `${fighter.id} (${fighter.name})` : "TBD (null)";
+
+const loadFightDetails = async (fightId: number) => {
+  const fight = await prisma.fight.findUnique({
+    where: { id: fightId },
+  });
+
+  if (!fight) {
+    return null;
+  }
+
+  const [event, fighter1, fighter2, predictionCount] = await Promise.all([
+    prisma.event.findUnique({ where: { id: fight.eventId } }),
+    prisma.fighter.findUnique({ where: { id: fight.fighter1Id } }),
+    fight.fighter2Id === null
+      ? Promise.resolve(null)
+      : prisma.fighter.findUnique({ where: { id: fight.fighter2Id } }),
+    prisma.prediction.count({ where: { fightId: fight.id } }),
+  ]);
+
+  if (!event || !fighter1 || (fight.fighter2Id !== null && !fighter2)) {
+    throw new Error("Fight references invalid Event or Fighter data.");
+  }
+
+  return { fight, event, fighter1, fighter2, predictionCount };
+};
+
+const createFight = async (): Promise<void> => {
+  console.log("");
+  console.log("Create Fight");
+
+  const eventIdInput = (await rl.question("Event ID: ")).trim();
+  const eventId = parsePositiveInteger(eventIdInput);
+
+  if (eventId === null) {
+    console.log("Error: invalid Event ID.");
+    return;
+  }
+
+  const event = await prisma.event.findUnique({ where: { id: eventId } });
+
+  if (!event) {
+    console.log("Error: Event not found.");
+    return;
+  }
+
+  console.log("");
+  console.log("Selected Event:");
+  console.log(`  id: ${event.id}`);
+  console.log(`  name: ${event.name}`);
+  console.log(`  date: ${formatJstDateTime(event.date)}`);
+  console.log(`  deadline: ${formatJstDateTime(event.deadline)}`);
+
+  const now = new Date();
+  if (now >= event.deadline) {
+    console.log("");
+    console.log("!!! PREDICTION DEADLINE HAS PASSED !!!");
+  }
+  if (now >= event.date) {
+    console.log("");
+    console.log("!!! EVENT HAS ALREADY STARTED !!!");
+  }
+
+  const fighter1IdInput = (await rl.question("fighter1 ID: ")).trim();
+  const fighter1Id = parsePositiveInteger(fighter1IdInput);
+  if (fighter1Id === null) {
+    console.log("Error: invalid fighter1 ID.");
+    return;
+  }
+
+  const fighter1 = await prisma.fighter.findUnique({ where: { id: fighter1Id } });
+  if (!fighter1) {
+    console.log("Error: fighter1 not found.");
+    return;
+  }
+  console.log(`Selected fighter1: ${formatFighter(fighter1)}`);
+
+  const fighter2IdInput = (
+    await rl.question("fighter2 ID (press Enter for TBD): ")
+  ).trim();
+  let fighter2: { id: number; name: string } | null = null;
+
+  if (fighter2IdInput !== "") {
+    const fighter2Id = parsePositiveInteger(fighter2IdInput);
+    if (fighter2Id === null) {
+      console.log("Error: invalid fighter2 ID.");
+      return;
+    }
+    if (fighter2Id === fighter1.id) {
+      console.log("Error: fighter1 and fighter2 must be different.");
+      return;
+    }
+    fighter2 = await prisma.fighter.findUnique({ where: { id: fighter2Id } });
+    if (!fighter2) {
+      console.log("Error: fighter2 not found.");
+      return;
+    }
+    console.log(`Selected fighter2: ${formatFighter(fighter2)}`);
+  } else {
+    console.log("Selected fighter2: TBD (null)");
+  }
+
+  const fightOrderInput = (await rl.question("fightOrder: ")).trim();
+  const fightOrder = parsePositiveInteger(fightOrderInput);
+  if (fightOrder === null) {
+    console.log("Error: fightOrder must be an integer of 1 or greater.");
+    return;
+  }
+
+  const duplicateFight = await prisma.fight.findFirst({
+    where: { eventId: event.id, fightOrder },
+  });
+  if (duplicateFight) {
+    console.log("Error: fightOrder is already used in this Event.");
+    console.log(
+      `Existing Fight: id=${duplicateFight.id}, status=${duplicateFight.status}, fightOrder=${duplicateFight.fightOrder}`
+    );
+    return;
+  }
+
+  console.log("");
+  console.log("Operation: Fight Create");
+  console.log("Target: New Fight");
+  console.log("Current value: (none)");
+  console.log("New value:");
+  console.log(`  Event: ${event.id} (${event.name})`);
+  console.log(`  fighter1: ${formatFighter(fighter1)}`);
+  console.log(`  fighter2: ${formatFighter(fighter2)}`);
+  console.log(`  fightOrder: ${fightOrder}`);
+  console.log("  status: scheduled");
+  console.log("  winnerId: null");
+  console.log("  method: null");
+
+  if (!(await confirmWrite())) return;
+
+  try {
+    const fight = await prisma.fight.create({
+      data: {
+        eventId: event.id,
+        fighter1Id: fighter1.id,
+        fighter2Id: fighter2?.id ?? null,
+        fightOrder,
+        status: "scheduled",
+        winnerId: null,
+        method: null,
+      },
+    });
+    console.log(`Fight created successfully. ID: ${fight.id}`);
+  } catch (error) {
+    console.log("Error: failed to create Fight.");
+    if (nodeEnv !== "production" && error instanceof Error) console.log(error.message);
+  }
+};
+
+const editFight = async (): Promise<void> => {
+  console.log("");
+  console.log("Edit Fight");
+
+  const fightIdInput = (await rl.question("Fight ID: ")).trim();
+  const fightId = parsePositiveInteger(fightIdInput);
+  if (fightId === null) {
+    console.log("Error: invalid Fight ID.");
+    return;
+  }
+
+  let details;
+  try {
+    details = await loadFightDetails(fightId);
+  } catch (error) {
+    console.log("Error: failed to load Fight details.");
+    if (nodeEnv !== "production" && error instanceof Error) console.log(error.message);
+    return;
+  }
+  if (!details) {
+    console.log("Error: Fight not found.");
+    return;
+  }
+
+  const { fight, event, fighter1, fighter2, predictionCount } = details;
+  console.log("");
+  console.log("Current Fight:");
+  console.log(`  id: ${fight.id}`);
+  console.log(`  Event: ${event.id} (${event.name})`);
+  console.log(`  fighter1: ${formatFighter(fighter1)}`);
+  console.log(`  fighter2: ${formatFighter(fighter2)}`);
+  console.log(`  fightOrder: ${fight.fightOrder ?? "null"}`);
+  console.log(`  status: ${fight.status}`);
+  console.log(`  Prediction count: ${predictionCount}`);
+
+  if (predictionCount > 0) {
+    console.log("");
+    console.log("Fight cannot be edited because Predictions already exist.");
+    console.log("Use Replace card in Phase 3-C instead of changing the Fighters directly.");
+    return;
+  }
+
+  console.log("");
+  console.log("Enter a new value, or press Enter to keep the current value.");
+  const fighter1Input = (await rl.question(`fighter1 ID [${fighter1.id}]: `)).trim();
+  let newFighter1 = fighter1;
+  if (fighter1Input !== "") {
+    const id = parsePositiveInteger(fighter1Input);
+    if (id === null) {
+      console.log("Error: invalid fighter1 ID.");
+      return;
+    }
+    const selected = await prisma.fighter.findUnique({ where: { id } });
+    if (!selected) {
+      console.log("Error: fighter1 not found.");
+      return;
+    }
+    newFighter1 = selected;
+    console.log(`Selected fighter1: ${formatFighter(selected)}`);
+  }
+
+  const fighter2Prompt = fighter2
+    ? `fighter2 ID [${fighter2.id}] (Enter=keep, NULL=unset): `
+    : "fighter2 ID [TBD] (Enter=keep, ID=set): ";
+  const fighter2Input = (await rl.question(fighter2Prompt)).trim();
+  let newFighter2 = fighter2;
+  if (fighter2Input.toUpperCase() === "NULL") {
+    newFighter2 = null;
+  } else if (fighter2Input !== "") {
+    const id = parsePositiveInteger(fighter2Input);
+    if (id === null) {
+      console.log("Error: invalid fighter2 ID.");
+      return;
+    }
+    const selected = await prisma.fighter.findUnique({ where: { id } });
+    if (!selected) {
+      console.log("Error: fighter2 not found.");
+      return;
+    }
+    newFighter2 = selected;
+    console.log(`Selected fighter2: ${formatFighter(selected)}`);
+  }
+
+  if (newFighter2 && newFighter1.id === newFighter2.id) {
+    console.log("Error: fighter1 and fighter2 must be different.");
+    return;
+  }
+
+  if (
+    newFighter1.id === fight.fighter1Id &&
+    (newFighter2?.id ?? null) === fight.fighter2Id
+  ) {
+    console.log("No changes.");
+    return;
+  }
+
+  console.log("");
+  console.log("Operation: Fight Edit");
+  console.log(`Target: Fight ${fight.id}`);
+  console.log("Current value:");
+  console.log(`  fighter1: ${formatFighter(fighter1)}`);
+  console.log(`  fighter2: ${formatFighter(fighter2)}`);
+  console.log("New value:");
+  console.log(`  fighter1: ${formatFighter(newFighter1)}`);
+  console.log(`  fighter2: ${formatFighter(newFighter2)}`);
+
+  if (!(await confirmWrite())) return;
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      const latestPredictionCount = await tx.prediction.count({ where: { fightId: fight.id } });
+      if (latestPredictionCount > 0) {
+        throw new Error("PREDICTIONS_EXIST");
+      }
+      await tx.fight.update({
+        where: { id: fight.id },
+        data: {
+          fighter1Id: newFighter1.id,
+          fighter2Id: newFighter2?.id ?? null,
+        },
+      });
+    });
+    console.log("Fight updated successfully.");
+  } catch (error) {
+    if (error instanceof Error && error.message === "PREDICTIONS_EXIST") {
+      console.log("Update cancelled: a Prediction was added before the write completed.");
+      console.log("No Fight changes were made.");
+      return;
+    }
+    console.log("Error: failed to update Fight.");
+    if (nodeEnv !== "production" && error instanceof Error) console.log(error.message);
+  }
+};
+
+const cancelFight = async (): Promise<void> => {
+  console.log("");
+  console.log("Cancel Fight");
+
+  const fightIdInput = (await rl.question("Fight ID: ")).trim();
+  const fightId = parsePositiveInteger(fightIdInput);
+  if (fightId === null) {
+    console.log("Error: invalid Fight ID.");
+    return;
+  }
+
+  let details;
+  try {
+    details = await loadFightDetails(fightId);
+  } catch (error) {
+    console.log("Error: failed to load Fight details.");
+    if (nodeEnv !== "production" && error instanceof Error) console.log(error.message);
+    return;
+  }
+  if (!details) {
+    console.log("Error: Fight not found.");
+    return;
+  }
+
+  const { fight, event, fighter1, fighter2, predictionCount } = details;
+  console.log("");
+  console.log("Current Fight:");
+  console.log(`  id: ${fight.id}`);
+  console.log(`  Event: ${event.id} (${event.name})`);
+  console.log(`  fighter1: ${formatFighter(fighter1)}`);
+  console.log(`  fighter2: ${formatFighter(fighter2)}`);
+  console.log(`  fightOrder: ${fight.fightOrder ?? "null"}`);
+  console.log(`  status: ${fight.status}`);
+  console.log(`  Prediction count: ${predictionCount}`);
+
+  if (fight.status === "cancelled") {
+    console.log("Fight is already cancelled. No changes.");
+    return;
+  }
+
+  if (fight.status !== "scheduled") {
+    console.log("");
+    console.log("!!! CONFIRMED FIGHT RESULT WILL BE OVERRIDDEN !!!");
+    console.log(`Current status: ${fight.status}`);
+    console.log("New status: cancelled");
+    const confirmed = await askYesNo(
+      "Are you sure you want to cancel this already-settled Fight?"
+    );
+    if (!confirmed) {
+      console.log("Cancelled. No database changes were made.");
+      return;
+    }
+  }
+
+  console.log("");
+  console.log("Operation: Fight Cancel");
+  console.log(`Target: Fight ${fight.id}`);
+  console.log("Current value:");
+  console.log(`  status: ${fight.status}`);
+  console.log(`  winnerId: ${fight.winnerId ?? "null"}`);
+  console.log(`  method: ${fight.method ?? "null"}`);
+  console.log(`  fightOrder: ${fight.fightOrder ?? "null"}`);
+  console.log("New value:");
+  console.log("  status: cancelled");
+  console.log("  winnerId: null");
+  console.log("  method: null");
+  console.log(`  fightOrder: ${fight.fightOrder ?? "null"} (unchanged)`);
+
+  if (!(await confirmWrite())) return;
+
+  try {
+    await prisma.fight.update({
+      where: { id: fight.id },
+      data: { status: "cancelled", winnerId: null, method: null },
+    });
+    console.log("Fight cancelled successfully.");
+  } catch (error) {
+    console.log("Error: failed to cancel Fight.");
+    if (nodeEnv !== "production" && error instanceof Error) console.log(error.message);
+  }
+};
+
+const showFightMenu = async (): Promise<void> => {
+  while (true) {
+    console.log("");
+    console.log("Fight Management");
+    console.log("");
+    console.log("1. Create Fight");
+    console.log("2. Edit Fight");
+    console.log("3. Cancel Fight");
+    console.log("4. Back");
+    console.log("");
+
+    const choice = (await rl.question("Select: ")).trim();
+    switch (choice) {
+      case "1":
+        await createFight();
+        break;
+      case "2":
+        await editFight();
+        break;
+      case "3":
+        await cancelFight();
+        break;
+      case "4":
+        return;
+      default:
+        console.log("Invalid selection.");
+        break;
+    }
+  }
+};
+
+
 const showMainMenu = async (): Promise<void> => {
   while (true) {
     console.log("");
@@ -676,7 +1096,8 @@ const showMainMenu = async (): Promise<void> => {
     console.log("");
     console.log("1. Event");
     console.log("2. Fighter");
-    console.log("3. Exit");
+    console.log("3. Fight");
+    console.log("4. Exit");
     console.log("");
 
     const choice = (await rl.question("Select: ")).trim();
@@ -691,6 +1112,10 @@ const showMainMenu = async (): Promise<void> => {
         break;
 
       case "3":
+        await showFightMenu();
+        break;
+
+      case "4":
         return;
 
       default:
