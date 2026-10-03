@@ -111,15 +111,26 @@ export default function PredictionForm(
     }
 
     try{
-      const data ={
-        predictions: matches.map((match: any) => (
-          {
-            fightId: match.id,
-            predictedWinnerId: winners[match.matchCard],
-            point:
-              points[match.matchCard] === "" ? 0 : Number(points[match.matchCard]),
-          }
-        )),
+      const predictions = matches
+        .filter((match: any) => {
+          const winnerId = winners[match.matchCard];
+          const point = points[match.matchCard];
+
+          return winnerId !== undefined && point !== undefined && point !== "";
+        })
+        .map((match: any) => ({
+          fightId: match.id,
+          predictedWinnerId: winners[match.matchCard],
+          point: Number(points[match.matchCard]),
+        }));
+
+      if (predictions.length === 0) {
+        showMessage("保存する予想を入力してください。");
+        return;
+      }
+
+      const data = {
+        predictions,
       };
 
       const response = await fetch("http://localhost:3001/predictions", {

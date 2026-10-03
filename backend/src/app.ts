@@ -808,37 +808,74 @@ app.get("/events/:id", async (req, res) => {
 
 
 // ==============================
-// 予測保存・更新
+// Prediction保存・更新
 // ==============================
 app.post("/predictions", requireAuth, async (req, res) => {
   const { predictions } = req.body;
   const userId = res.locals.userId;
 
-  // リクエスト内容を検証
-  if (!Array.isArray(predictions)) {
+  // リクエスト形式を検証
+  if (!Array.isArray(predictions) || predictions.length === 0) {
     return res.status(400).json({
       success: false,
-      message: "Invalid request",
+      code: "INVALID_PREDICTIONS",
+      message: "Predictions must be a non-empty array",
     });
   }
 
-  const invalidPoint = predictions.some(
-    (prediction: any) =>
-      prediction.point < 0 || prediction.point > MAX_FIGHT_POINTS
-  );
+  // 各Predictionの必須項目・型・point範囲を検証
+  for (const prediction of predictions) {
+    if (
+      !prediction ||
+      typeof prediction !== "object" ||
+      !Number.isInteger(prediction.fightId) ||
+      prediction.fightId <= 0
+    ) {
+      return res.status(400).json({
+        success: false,
+        code: "INVALID_FIGHT_ID",
+        message: "fightId must be a positive integer",
+      });
+    }
 
-  if (invalidPoint) {
-    return res.status(400).json({
-      success: false,
-      message: `Point must be between 0 and ${MAX_FIGHT_POINTS}`,
-    });
+    if (
+      !Number.isInteger(prediction.predictedWinnerId) ||
+      prediction.predictedWinnerId <= 0
+    ) {
+      return res.status(400).json({
+        success: false,
+        code: "INVALID_PREDICTED_WINNER_ID",
+        message: "predictedWinnerId must be a positive integer",
+      });
+    }
+
+    if (
+      !Number.isInteger(prediction.point) ||
+      prediction.point < 0 ||
+      prediction.point > MAX_FIGHT_POINTS
+    ) {
+      return res.status(400).json({
+        success: false,
+        code: "INVALID_POINT",
+        message: `Point must be an integer between 0 and ${MAX_FIGHT_POINTS}`,
+      });
+    }
   }
 
-  // 送信された試合から対象大会を特定
+  // 同じFightを1リクエスト内で重複指定できないようにする
   const fightIds = predictions.map(
     (prediction: any) => prediction.fightId
   );
 
+  if (new Set(fightIds).size !== fightIds.length) {
+    return res.status(400).json({
+      success: false,
+      code: "DUPLICATE_FIGHT",
+      message: "Duplicate fightId is not allowed",
+    });
+  }
+
+  // 対象Fightを取得
   const fights = await prisma.fight.findMany({
     where: {
       id: {
@@ -850,15 +887,18 @@ app.post("/predictions", requireAuth, async (req, res) => {
   if (fights.length !== fightIds.length) {
     return res.status(400).json({
       success: false,
+      code: "INVALID_FIGHT",
       message: "Invalid fight",
     });
   }
 
+  // すべて同一Eventに属することを確認
   const eventIds = [...new Set(fights.map((fight) => fight.eventId))];
 
   if (eventIds.length !== 1) {
     return res.status(400).json({
       success: false,
+      code: "MULTIPLE_EVENTS",
       message: "Predictions must belong to one event",
     });
   }
@@ -868,11 +908,12 @@ app.post("/predictions", requireAuth, async (req, res) => {
   if (eventId === undefined) {
     return res.status(400).json({
       success: false,
+      code: "EVENT_NOT_FOUND",
       message: "Event not found",
     });
   }
 
-  // BackendでPrediction締切を強制
+  // Eventを取得
   const event = await prisma.event.findUnique({
     where: {
       id: eventId,
@@ -882,10 +923,12 @@ app.post("/predictions", requireAuth, async (req, res) => {
   if (!event) {
     return res.status(400).json({
       success: false,
+      code: "EVENT_NOT_FOUND",
       message: "Event not found",
     });
   }
 
+  // deadline以降はPrediction保存・更新不可
   if (new Date() >= event.deadline) {
     return res.status(403).json({
       success: false,
@@ -894,7 +937,49 @@ app.post("/predictions", requireAuth, async (req, res) => {
     });
   }
 
-  // 対象大会の試合と既存Predictionを取得
+  // Prediction可能なFightか検証
+  for (const prediction of predictions) {
+    const fight = fights.find(
+      (fight) => fight.id === prediction.fightId
+    );
+
+    if (!fight) {
+      return res.status(400).json({
+        success: false,
+        code: "INVALID_FIGHT",
+        message: "Invalid fight",
+      });
+    }
+
+    if (fight.status !== "scheduled") {
+      return res.status(409).json({
+        success: false,
+        code: "FIGHT_NOT_OPEN_FOR_PREDICTION",
+        message: "Fight is not open for prediction",
+      });
+    }
+
+    if (fight.fighter2Id === null) {
+      return res.status(409).json({
+        success: false,
+        code: "FIGHTER2_NOT_SET",
+        message: "Prediction is not available until fighter2 is set",
+      });
+    }
+
+    if (
+      prediction.predictedWinnerId !== fight.fighter1Id &&
+      prediction.predictedWinnerId !== fight.fighter2Id
+    ) {
+      return res.status(400).json({
+        success: false,
+        code: "INVALID_PREDICTED_WINNER",
+        message: "predictedWinnerId must belong to the fight",
+      });
+    }
+  }
+
+  // 対象Eventの全Fightと既存Predictionを取得
   const eventFights = await prisma.fight.findMany({
     where: {
       eventId: eventId,
@@ -912,7 +997,7 @@ app.post("/predictions", requireAuth, async (req, res) => {
     },
   });
 
-  // 更新後の状態を作成し、大会合計がMAX_EVENT_POINTSpt以内か検証
+  // 更新後のEvent合計が100pt以内か検証
   const mergedPredictions = eventFightIds.map((fightId) => {
     const incomingPrediction = predictions.find(
       (prediction: any) => prediction.fightId === fightId
@@ -921,7 +1006,7 @@ app.post("/predictions", requireAuth, async (req, res) => {
     if (incomingPrediction) {
       return {
         fightId: fightId,
-        point: Number(incomingPrediction.point),
+        point: incomingPrediction.point,
       };
     }
 
@@ -943,12 +1028,13 @@ app.post("/predictions", requireAuth, async (req, res) => {
   if (totalPoint > MAX_EVENT_POINTS) {
     return res.status(400).json({
       success: false,
+      code: "EVENT_POINT_LIMIT_EXCEEDED",
       message: `Total points exceed ${MAX_EVENT_POINTS}`,
     });
   }
 
   // Predictionを試合ごとに新規保存または更新
-  const savedPredictions = await Promise.all(
+  const savedPredictions = await prisma.$transaction(
     predictions.map((prediction: any) =>
       prisma.prediction.upsert({
         where: {
@@ -970,8 +1056,6 @@ app.post("/predictions", requireAuth, async (req, res) => {
       })
     )
   );
-
-  console.log(savedPredictions);
 
   return res.status(200).json({
     success: true,
