@@ -12,6 +12,7 @@ type PredictionForResult = {
 type FightForResult = {
   id: number;
   status: string;
+  cancelReason: string | null;
   winnerId: number | null;
 };
 
@@ -22,7 +23,7 @@ type PredictionForSupportRate = {
 export type PredictionResult = {
   predictionId: number;
   fightId: number;
-  result: "HIT" | "MISS" | "REFUND" | "NOT_SETTLED";
+  result: "HIT" | "MISS" | "REFUND" | "VOID" | "NOT_SETTLED";
   supportRate: number;
   multiplier: number;
   earnedPoint: number | null;
@@ -61,9 +62,18 @@ export const calculatePredictionResult = (
 
     case "draw":
     case "no_contest":
-    case "cancelled":
       result = "REFUND";
       earnedPoint = prediction.point;
+      break;
+
+    case "cancelled":
+      if (fight.cancelReason === "REPLACED_BEFORE_DEADLINE") {
+        result = "VOID";
+        earnedPoint = null;
+      } else {
+        result = "REFUND";
+        earnedPoint = prediction.point;
+      }
       break;
 
     case "scheduled":

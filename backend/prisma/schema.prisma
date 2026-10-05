@@ -20,6 +20,12 @@ enum FightStatus {
   cancelled
 }
 
+enum CancelReason {
+  STANDARD
+  REPLACED_BEFORE_DEADLINE
+  REPLACED_AFTER_DEADLINE
+}
+
 enum UserRole {
   USER
   ADMIN
@@ -61,6 +67,7 @@ model Fight {
   fightOrder Int?
 
   status     FightStatus @default(scheduled)
+  cancelReason CancelReason? @map("CancelReason")
   winnerId   Int?
   method     FightMethod?
 

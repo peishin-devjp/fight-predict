@@ -999,6 +999,19 @@ app.post("/predictions", requireAuth, async (req, res) => {
 
   // 更新後のEvent合計が100pt以内か検証
   const mergedPredictions = eventFightIds.map((fightId) => {
+    const fight = eventFights.find((fight) => fight.id === fightId);
+
+    const isVoidFight =
+      fight?.status === "cancelled" &&
+      fight.cancelReason === "REPLACED_BEFORE_DEADLINE";
+
+    if (isVoidFight) {
+      return {
+        fightId: fightId,
+        point: 0,
+      };
+    }
+
     const incomingPrediction = predictions.find(
       (prediction: any) => prediction.fightId === fightId
     );
@@ -1167,7 +1180,15 @@ app.get(
       },
     });
 
-    const fightIds = fights.map((fight) => fight.id);
+    const fightIds = fights
+      .filter(
+        (fight) =>
+          !(
+            fight.status === "cancelled" &&
+            fight.cancelReason === "REPLACED_BEFORE_DEADLINE"
+          )
+      )
+      .map((fight) => fight.id);
 
     const predictions = await prisma.prediction.findMany({
       where: {
@@ -1512,11 +1533,23 @@ app.get("/rankings", async (_req, res) => {
     },
   });
 
+  const voidFightIds = new Set(
+    targetFights
+      .filter(
+        (fight) =>
+          fight.status === "cancelled" &&
+          fight.cancelReason === "REPLACED_BEFORE_DEADLINE"
+      )
+      .map((fight) => fight.id)
+  );
+
   const participatingUserIds = [
     ...new Set(
-      participatingPredictions.map(
-        (prediction) => prediction.userId
-      )
+      participatingPredictions
+        .filter(
+          (prediction) => !voidFightIds.has(prediction.fightId)
+        )
+        .map((prediction) => prediction.userId)
     ),
   ];
 

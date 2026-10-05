@@ -1039,6 +1039,7 @@ const cancelFight = async (): Promise<void> => {
   console.log(`  fightOrder: ${fight.fightOrder ?? "null"}`);
   console.log("New value:");
   console.log("  status: cancelled");
+  console.log("  cancelReason: STANDARD");
   console.log("  winnerId: null");
   console.log("  method: null");
   console.log(`  fightOrder: ${fight.fightOrder ?? "null"} (unchanged)`);
@@ -1048,7 +1049,12 @@ const cancelFight = async (): Promise<void> => {
   try {
     await prisma.fight.update({
       where: { id: fight.id },
-      data: { status: "cancelled", winnerId: null, method: null },
+      data: {
+        status: "cancelled",
+        cancelReason: "STANDARD",
+        winnerId: null,
+        method: null,
+      },
     });
     console.log("Fight cancelled successfully.");
   } catch (error) {

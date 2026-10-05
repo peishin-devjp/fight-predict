@@ -11,6 +11,7 @@ type PredictionForEventScore = {
 type FightForEventScore = {
   id: number;
   status: string;
+  cancelReason: string | null;
   winnerId: number | null;
 };
 
