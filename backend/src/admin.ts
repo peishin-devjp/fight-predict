@@ -1063,6 +1063,381 @@ const cancelFight = async (): Promise<void> => {
   }
 };
 
+const replaceFight = async (): Promise<void> => {
+  console.log("");
+  console.log("Replace card");
+
+  const fightIdInput = (await rl.question("Fight ID: ")).trim();
+  const fightId = parsePositiveInteger(fightIdInput);
+
+  if (fightId === null) {
+    console.log("Error: invalid Fight ID.");
+    return;
+  }
+
+  let details;
+  try {
+    details = await loadFightDetails(fightId);
+  } catch (error) {
+    console.log("Error: failed to load Fight details.");
+    if (nodeEnv !== "production" && error instanceof Error) {
+      console.log(error.message);
+    }
+    return;
+  }
+
+  if (!details) {
+    console.log("Error: Fight not found.");
+    return;
+  }
+
+  const { fight, event, fighter1, fighter2, predictionCount } = details;
+
+  if (fight.status !== "scheduled") {
+    console.log(
+      `Error: only scheduled Fight can be replaced. Current status: ${fight.status}`
+    );
+    return;
+  }
+
+  if (fight.fightOrder === null) {
+    console.log("Error: Fight with fightOrder=null cannot be replaced.");
+    return;
+  }
+
+  const fighter1IdInput = (await rl.question("New fighter1 ID: ")).trim();
+  const newFighter1Id = parsePositiveInteger(fighter1IdInput);
+
+  if (newFighter1Id === null) {
+    console.log("Error: invalid fighter1 ID.");
+    return;
+  }
+
+  const newFighter1 = await prisma.fighter.findUnique({
+    where: { id: newFighter1Id },
+  });
+
+  if (!newFighter1) {
+    console.log("Error: fighter1 not found.");
+    return;
+  }
+
+  const fighter2IdInput = (
+    await rl.question("New fighter2 ID (press Enter for TBD): ")
+  ).trim();
+
+  let newFighter2: { id: number; name: string } | null = null;
+
+  if (fighter2IdInput !== "") {
+    const newFighter2Id = parsePositiveInteger(fighter2IdInput);
+
+    if (newFighter2Id === null) {
+      console.log("Error: invalid fighter2 ID.");
+      return;
+    }
+
+    if (newFighter2Id === newFighter1.id) {
+      console.log("Error: fighter1 and fighter2 must be different.");
+      return;
+    }
+
+    newFighter2 = await prisma.fighter.findUnique({
+      where: { id: newFighter2Id },
+    });
+
+    if (!newFighter2) {
+      console.log("Error: fighter2 not found.");
+      return;
+    }
+  }
+
+  if (
+    newFighter1.id === fight.fighter1Id &&
+    (newFighter2?.id ?? null) === fight.fighter2Id
+  ) {
+    console.log("Error: new card is identical to the current card.");
+    return;
+  }
+
+  const predictionPointAggregate = await prisma.prediction.aggregate({
+    where: { fightId: fight.id },
+    _sum: { point: true },
+  });
+
+  const allocatedPointTotal = predictionPointAggregate._sum.point ?? 0;
+  const previewNow = new Date();
+  const previewIsBeforeDeadline = previewNow < event.deadline;
+  const eventAlreadyStarted = previewNow >= event.date;
+
+  console.log("");
+  console.log("========================================");
+  console.log("Replace card confirmation");
+  console.log("========================================");
+  console.log("");
+  console.log("Environment");
+  console.log(`- NODE_ENV: ${nodeEnv}`);
+  console.log(`- Database: ${getSafeDatabaseTarget()}`);
+
+  console.log("");
+  console.log("Event");
+  console.log(`- ID: ${event.id}`);
+  console.log(`- name: ${event.name}`);
+  console.log(`- Event Start: ${formatJstDateTime(event.date)}`);
+  console.log(
+    `- Prediction Deadline: ${formatJstDateTime(event.deadline)}`
+  );
+  console.log(
+    `- Deadline Status: ${
+      previewIsBeforeDeadline ? "BEFORE DEADLINE" : "AFTER DEADLINE"
+    }`
+  );
+  console.log("  (Reference only. Final status is decided in transaction.)");
+
+  console.log("");
+  console.log("Current Fight");
+  console.log(`- ID: ${fight.id}`);
+  console.log(`- fightOrder: ${fight.fightOrder}`);
+  console.log(`- fighter1: ${formatFighter(fighter1)}`);
+  console.log(`- fighter2: ${formatFighter(fighter2)}`);
+  console.log(`- status: ${fight.status}`);
+  console.log(`- Prediction count: ${predictionCount}`);
+  console.log(`- Prediction allocated point total: ${allocatedPointTotal}`);
+
+  console.log("");
+  console.log("New Fight");
+  console.log(`- fighter1: ${formatFighter(newFighter1)}`);
+  console.log(`- fighter2: ${formatFighter(newFighter2)}`);
+  console.log(`- fightOrder: ${fight.fightOrder}`);
+
+  console.log("");
+  console.log("REPLACE RESULT");
+  console.log("");
+
+  if (previewIsBeforeDeadline) {
+    console.log("Old Fight:");
+    console.log("-> CANCELLED");
+    console.log("-> REPLACED_BEFORE_DEADLINE");
+    console.log("-> Existing Predictions = VOID");
+    console.log("-> Allocated points will be released.");
+    console.log("");
+    console.log("New Fight:");
+    console.log("-> New Fight ID will be created");
+    console.log("-> Prediction available until Event deadline.");
+  } else {
+    console.log("Old Fight:");
+    console.log("-> CANCELLED");
+    console.log("-> REPLACED_AFTER_DEADLINE");
+    console.log("-> Existing Predictions = REFUND");
+    console.log("");
+    console.log("New Fight:");
+    console.log("-> New Fight ID will be created");
+    console.log("-> Prediction is NOT available.");
+    console.log("-> Event deadline will NOT be reopened.");
+  }
+
+  let eventStartedConfirmed = false;
+
+  if (eventAlreadyStarted) {
+    console.log("");
+    console.log("========================================");
+    console.log("WARNING:");
+    console.log("EVENT HAS ALREADY STARTED.");
+    console.log("");
+    console.log(
+      "Replace is allowed only if the target fight has NOT started."
+    );
+    console.log("Confirm that the fight has not started.");
+    console.log("========================================");
+
+    const startedAnswer = await rl.question(
+      'Type "FIGHT_NOT_STARTED" to continue: '
+    );
+
+    if (startedAnswer !== "FIGHT_NOT_STARTED") {
+      console.log("Confirmation failed. No database changes were made.");
+      return;
+    }
+
+    eventStartedConfirmed = true;
+  }
+
+  console.log("");
+  const confirmation = await rl.question('Type "CONFIRM" to execute: ');
+
+  if (confirmation !== "CONFIRM") {
+    console.log("Confirmation failed. No database changes were made.");
+    return;
+  }
+
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      const latestFight = await tx.fight.findUnique({
+        where: { id: fight.id },
+      });
+
+      if (!latestFight) {
+        throw new Error("REPLACE_FIGHT_NOT_FOUND");
+      }
+
+      const latestEvent = await tx.event.findUnique({
+        where: { id: latestFight.eventId },
+      });
+
+      if (!latestEvent) {
+        throw new Error("REPLACE_EVENT_NOT_FOUND");
+      }
+
+      if (latestFight.status !== "scheduled") {
+        throw new Error("REPLACE_FIGHT_NOT_SCHEDULED");
+      }
+
+      if (latestFight.fightOrder === null) {
+        throw new Error("REPLACE_FIGHT_ORDER_NULL");
+      }
+
+      const latestNewFighter1 = await tx.fighter.findUnique({
+        where: { id: newFighter1.id },
+      });
+
+      if (!latestNewFighter1) {
+        throw new Error("REPLACE_FIGHTER1_NOT_FOUND");
+      }
+
+      let latestNewFighter2: { id: number; name: string } | null = null;
+
+      if (newFighter2 !== null) {
+        latestNewFighter2 = await tx.fighter.findUnique({
+          where: { id: newFighter2.id },
+        });
+
+        if (!latestNewFighter2) {
+          throw new Error("REPLACE_FIGHTER2_NOT_FOUND");
+        }
+      }
+
+      if (
+        latestNewFighter2 !== null &&
+        latestNewFighter1.id === latestNewFighter2.id
+      ) {
+        throw new Error("REPLACE_SAME_FIGHTER");
+      }
+
+      if (
+        latestNewFighter1.id === latestFight.fighter1Id &&
+        (latestNewFighter2?.id ?? null) === latestFight.fighter2Id
+      ) {
+        throw new Error("REPLACE_IDENTICAL_CARD");
+      }
+
+      const transactionNow = new Date();
+
+      if (
+        transactionNow >= latestEvent.date &&
+        !eventStartedConfirmed
+      ) {
+        throw new Error("REPLACE_EVENT_STARTED_CONFIRMATION_REQUIRED");
+      }
+
+      const cancelReason =
+        transactionNow < latestEvent.deadline
+          ? "REPLACED_BEFORE_DEADLINE"
+          : "REPLACED_AFTER_DEADLINE";
+
+      const inheritedFightOrder = latestFight.fightOrder;
+
+      await tx.fight.update({
+        where: { id: latestFight.id },
+        data: {
+          status: "cancelled",
+          cancelReason,
+          fightOrder: null,
+          winnerId: null,
+          method: null,
+        },
+      });
+
+      const newFight = await tx.fight.create({
+        data: {
+          eventId: latestFight.eventId,
+          fighter1Id: latestNewFighter1.id,
+          fighter2Id: latestNewFighter2?.id ?? null,
+          fightOrder: inheritedFightOrder,
+          status: "scheduled",
+          cancelReason: null,
+          winnerId: null,
+          method: null,
+        },
+      });
+
+      return {
+        oldFightId: latestFight.id,
+        newFightId: newFight.id,
+        fightOrder: inheritedFightOrder,
+        cancelReason,
+      };
+    });
+
+    console.log("");
+    console.log("Fight replaced successfully.");
+    console.log(`Old Fight ID: ${result.oldFightId}`);
+    console.log(`New Fight ID: ${result.newFightId}`);
+    console.log(`fightOrder: ${result.fightOrder}`);
+    console.log(`cancelReason: ${result.cancelReason}`);
+  } catch (error) {
+    console.log("");
+    console.log("Replace failed. No Fight changes were committed.");
+
+    if (error instanceof Error) {
+      switch (error.message) {
+        case "REPLACE_FIGHT_NOT_FOUND":
+          console.log("Reason: target Fight no longer exists.");
+          break;
+        case "REPLACE_EVENT_NOT_FOUND":
+          console.log("Reason: Event no longer exists.");
+          break;
+        case "REPLACE_FIGHT_NOT_SCHEDULED":
+          console.log(
+            "Reason: target Fight is no longer scheduled."
+          );
+          break;
+        case "REPLACE_FIGHT_ORDER_NULL":
+          console.log("Reason: target Fight now has fightOrder=null.");
+          break;
+        case "REPLACE_FIGHTER1_NOT_FOUND":
+          console.log("Reason: new fighter1 no longer exists.");
+          break;
+        case "REPLACE_FIGHTER2_NOT_FOUND":
+          console.log("Reason: new fighter2 no longer exists.");
+          break;
+        case "REPLACE_SAME_FIGHTER":
+          console.log(
+            "Reason: fighter1 and fighter2 must be different."
+          );
+          break;
+        case "REPLACE_IDENTICAL_CARD":
+          console.log(
+            "Reason: new card is identical to the current card."
+          );
+          break;
+        case "REPLACE_EVENT_STARTED_CONFIRMATION_REQUIRED":
+          console.log(
+            "Reason: Event started after the confirmation screen was displayed."
+          );
+          console.log(
+            "Run Replace card again and explicitly confirm that the target fight has not started."
+          );
+          break;
+        default:
+          console.log("Reason: transaction failed.");
+          if (nodeEnv !== "production") {
+            console.log(error.message);
+          }
+          break;
+      }
+    }
+  }
+};
+
 const showFightMenu = async (): Promise<void> => {
   while (true) {
     console.log("");
@@ -1071,7 +1446,8 @@ const showFightMenu = async (): Promise<void> => {
     console.log("1. Create Fight");
     console.log("2. Edit Fight");
     console.log("3. Cancel Fight");
-    console.log("4. Back");
+    console.log("4. Replace card");
+    console.log("5. Back");
     console.log("");
 
     const choice = (await rl.question("Select: ")).trim();
@@ -1086,6 +1462,9 @@ const showFightMenu = async (): Promise<void> => {
         await cancelFight();
         break;
       case "4":
+        await replaceFight();
+        break;
+      case "5":
         return;
       default:
         console.log("Invalid selection.");
