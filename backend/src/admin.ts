@@ -1438,6 +1438,532 @@ const replaceFight = async (): Promise<void> => {
   }
 };
 
+const reorderFights = async (): Promise<void> => {
+  console.log("");
+  console.log("Reorder fights");
+
+  const eventIdInput = (await rl.question("Event ID: ")).trim();
+  const eventId = parsePositiveInteger(eventIdInput);
+
+  if (eventId === null) {
+    console.log("Error: invalid Event ID.");
+    return;
+  }
+
+  const event = await prisma.event.findUnique({
+    where: { id: eventId },
+  });
+
+  if (!event) {
+    console.log("Error: Event not found.");
+    return;
+  }
+
+  const currentFights = await prisma.fight.findMany({
+    where: {
+      eventId,
+      fightOrder: { not: null },
+    },
+    orderBy: [
+      { fightOrder: "asc" },
+      { id: "asc" },
+    ],
+  });
+
+  if (currentFights.length === 0) {
+    console.log("Error: no ordered Fights found for this Event.");
+    return;
+  }
+
+  const fighterIds = Array.from(
+    new Set(
+      currentFights.flatMap((fight) =>
+        fight.fighter2Id === null
+          ? [fight.fighter1Id]
+          : [fight.fighter1Id, fight.fighter2Id]
+      )
+    )
+  );
+
+  const fighters = await prisma.fighter.findMany({
+    where: {
+      id: { in: fighterIds },
+    },
+  });
+
+  const fighterNameById = new Map(
+    fighters.map((fighter) => [fighter.id, fighter.name])
+  );
+
+  const formatFightCard = (fight: (typeof currentFights)[number]): string => {
+    const fighter1Name =
+      fighterNameById.get(fight.fighter1Id) ?? `Unknown (${fight.fighter1Id})`;
+
+    const fighter2Name =
+      fight.fighter2Id === null
+        ? "TBD"
+        : fighterNameById.get(fight.fighter2Id) ??
+          `Unknown (${fight.fighter2Id})`;
+
+    return `${fighter1Name} vs ${fighter2Name}`;
+  };
+
+  console.log("");
+  console.log("Current Card");
+  console.log("");
+
+  for (const fight of currentFights) {
+    console.log(
+      `${fight.fightOrder} | Fight ID ${fight.id} | ${formatFightCard(
+        fight
+      )} | ${fight.status}`
+    );
+  }
+
+  console.log("");
+  console.log(
+    "Enter ALL Fight IDs in the desired order, separated by commas."
+  );
+
+  const orderInput = (
+    await rl.question("New order (example: 104,101,103,102): ")
+  ).trim();
+
+  if (orderInput === "") {
+    console.log("Error: Fight ID list cannot be empty.");
+    return;
+  }
+
+  const rawIds = orderInput.split(",").map((value) => value.trim());
+
+  if (rawIds.some((value) => value === "")) {
+    console.log("Error: invalid Fight ID list.");
+    return;
+  }
+
+  const requestedFightIds: number[] = [];
+
+  for (const rawId of rawIds) {
+    const parsedId = parsePositiveInteger(rawId);
+
+    if (parsedId === null) {
+      console.log(`Error: invalid Fight ID: ${rawId}`);
+      return;
+    }
+
+    requestedFightIds.push(parsedId);
+  }
+
+  const uniqueRequestedIds = new Set(requestedFightIds);
+
+  if (uniqueRequestedIds.size !== requestedFightIds.length) {
+    console.log("Error: duplicate Fight IDs are not allowed.");
+    return;
+  }
+
+  const currentFightIds = currentFights.map((fight) => fight.id);
+  const currentFightIdSet = new Set(currentFightIds);
+
+  const nonexistentFightIds: number[] = [];
+  const otherEventFightIds: number[] = [];
+  const nullOrderFightIds: number[] = [];
+
+  for (const requestedId of requestedFightIds) {
+    if (currentFightIdSet.has(requestedId)) {
+      continue;
+    }
+
+    const requestedFight = await prisma.fight.findUnique({
+      where: { id: requestedId },
+    });
+
+    if (!requestedFight) {
+      nonexistentFightIds.push(requestedId);
+      continue;
+    }
+
+    if (requestedFight.eventId !== eventId) {
+      otherEventFightIds.push(requestedId);
+      continue;
+    }
+
+    if (requestedFight.fightOrder === null) {
+      nullOrderFightIds.push(requestedId);
+      continue;
+    }
+  }
+
+  if (nonexistentFightIds.length > 0) {
+    console.log(
+      `Error: Fight not found: ${nonexistentFightIds.join(", ")}`
+    );
+    return;
+  }
+
+  if (otherEventFightIds.length > 0) {
+    console.log(
+      `Error: Fight belongs to another Event: ${otherEventFightIds.join(", ")}`
+    );
+    return;
+  }
+
+  if (nullOrderFightIds.length > 0) {
+    console.log(
+      `Error: fightOrder=null Fight cannot be reordered: ${nullOrderFightIds.join(
+        ", "
+      )}`
+    );
+    return;
+  }
+
+  if (requestedFightIds.length !== currentFightIds.length) {
+    console.log(
+      "Error: all currently ordered Fights must be specified exactly once."
+    );
+    return;
+  }
+
+  const missingFightIds = currentFightIds.filter(
+    (id) => !uniqueRequestedIds.has(id)
+  );
+
+  const extraFightIds = requestedFightIds.filter(
+    (id) => !currentFightIdSet.has(id)
+  );
+
+  if (missingFightIds.length > 0 || extraFightIds.length > 0) {
+    console.log(
+      "Error: Fight ID list does not exactly match the current ordered card."
+    );
+
+    if (missingFightIds.length > 0) {
+      console.log(`Missing Fight IDs: ${missingFightIds.join(", ")}`);
+    }
+
+    if (extraFightIds.length > 0) {
+      console.log(`Extra Fight IDs: ${extraFightIds.join(", ")}`);
+    }
+
+    return;
+  }
+
+  const currentOrderByFightId = new Map(
+    currentFights.map((fight) => [fight.id, fight.fightOrder as number])
+  );
+
+  const proposedOrderByFightId = new Map(
+    requestedFightIds.map((fightId, index) => [fightId, index + 1])
+  );
+
+  console.log("");
+  console.log("========================================");
+  console.log("FIGHT REORDER");
+  console.log("========================================");
+
+  console.log("");
+  console.log("Environment");
+  console.log(`- NODE_ENV: ${nodeEnv}`);
+  console.log(`- Database: ${getSafeDatabaseTarget()}`);
+
+  console.log("");
+  console.log("Event");
+  console.log(`- ID: ${event.id}`);
+  console.log(`- name: ${event.name}`);
+  console.log(`- Event Start: ${formatJstDateTime(event.date)}`);
+  console.log(
+    `- Prediction Deadline: ${formatJstDateTime(event.deadline)}`
+  );
+
+  console.log("");
+  console.log("Current Card");
+  console.log("");
+
+  for (const fight of currentFights) {
+    console.log(
+      `${fight.fightOrder} | Fight ID ${fight.id} | ${formatFightCard(
+        fight
+      )} | ${fight.status}`
+    );
+  }
+
+  console.log("");
+  console.log("Proposed Card");
+  console.log("");
+
+  for (const [index, fightId] of requestedFightIds.entries()) {
+    const fight = currentFights.find(
+      (currentFight) => currentFight.id === fightId
+    );
+
+    if (!fight) {
+      console.log("Error: internal Fight lookup failed.");
+      return;
+    }
+
+    console.log(
+      `${index + 1} | Fight ID ${fight.id} | ${formatFightCard(
+        fight
+      )} | ${fight.status}`
+    );
+  }
+
+  console.log("");
+  console.log("Changes");
+
+  let hasOrderChange = false;
+
+  for (const fightId of requestedFightIds) {
+    const currentOrder = currentOrderByFightId.get(fightId);
+    const proposedOrder = proposedOrderByFightId.get(fightId);
+
+    if (currentOrder !== proposedOrder) {
+      hasOrderChange = true;
+    }
+
+    console.log(
+      `ID ${fightId}: ${currentOrder ?? "null"} -> ${proposedOrder}`
+    );
+  }
+
+  if (!hasOrderChange) {
+    console.log("");
+    console.log("No order changes.");
+    return;
+  }
+
+  console.log("");
+  console.log(
+    "No fighter, status, result, cancelReason, or Prediction data will be changed."
+  );
+  console.log(
+    "fightOrder will be normalized to consecutive values 1 through N."
+  );
+
+  const previewNow = new Date();
+  let eventStartedConfirmed = false;
+
+  if (previewNow >= event.date) {
+    const settledFight = currentFights.find(
+      (fight) =>
+        fight.status === "finished" ||
+        fight.status === "draw" ||
+        fight.status === "no_contest"
+    );
+
+    if (settledFight) {
+      console.log("");
+      console.log("Reorder rejected.");
+      console.log("Event has already started and the ordered card contains");
+      console.log(
+        "a finished, draw, or no_contest Fight."
+      );
+      console.log(
+        `Fight ID ${settledFight.id} status: ${settledFight.status}`
+      );
+      console.log("No database changes were made.");
+      return;
+    }
+
+    console.log("");
+    console.log("========================================");
+    console.log("WARNING:");
+    console.log("EVENT HAS ALREADY STARTED.");
+    console.log("");
+    console.log(
+      "The ordered card currently contains only scheduled/cancelled Fights."
+    );
+    console.log(
+      "Confirm that reordering the remaining card is intentional."
+    );
+    console.log("========================================");
+
+    const startedAnswer = await rl.question(
+      'Type "REORDER_AFTER_EVENT_START" to continue: '
+    );
+
+    if (startedAnswer !== "REORDER_AFTER_EVENT_START") {
+      console.log("Confirmation failed. No database changes were made.");
+      return;
+    }
+
+    eventStartedConfirmed = true;
+  }
+
+  console.log("");
+  const confirmation = await rl.question(
+    'Type "CONFIRM" to execute: '
+  );
+
+  if (confirmation !== "CONFIRM") {
+    console.log("Confirmation failed. No database changes were made.");
+    return;
+  }
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      const latestEvent = await tx.event.findUnique({
+        where: { id: eventId },
+      });
+
+      if (!latestEvent) {
+        throw new Error("REORDER_EVENT_NOT_FOUND");
+      }
+
+      const latestFights = await tx.fight.findMany({
+        where: {
+          eventId,
+          fightOrder: { not: null },
+        },
+        orderBy: [
+          { fightOrder: "asc" },
+          { id: "asc" },
+        ],
+      });
+
+      const latestFightIds = latestFights.map((fight) => fight.id);
+      const latestFightIdSet = new Set(latestFightIds);
+
+      if (latestFightIdSet.size !== latestFightIds.length) {
+        throw new Error("REORDER_LATEST_DUPLICATE_FIGHT");
+      }
+
+      if (uniqueRequestedIds.size !== requestedFightIds.length) {
+        throw new Error("REORDER_REQUEST_DUPLICATE_FIGHT");
+      }
+
+      if (
+        latestFightIds.length !== currentFightIds.length ||
+        latestFightIdSet.size !== currentFightIdSet.size ||
+        currentFightIds.some((id) => !latestFightIdSet.has(id))
+      ) {
+        throw new Error("REORDER_CARD_CHANGED");
+      }
+
+      if (
+        requestedFightIds.length !== latestFightIds.length ||
+        requestedFightIds.some((id) => !latestFightIdSet.has(id))
+      ) {
+        throw new Error("REORDER_CARD_CHANGED");
+      }
+
+      for (const fight of latestFights) {
+        if (fight.eventId !== eventId) {
+          throw new Error("REORDER_DIFFERENT_EVENT");
+        }
+
+        if (fight.fightOrder === null) {
+          throw new Error("REORDER_FIGHT_ORDER_NULL");
+        }
+      }
+
+      const transactionNow = new Date();
+
+      if (transactionNow >= latestEvent.date) {
+        const settledFight = latestFights.find(
+          (fight) =>
+            fight.status === "finished" ||
+            fight.status === "draw" ||
+            fight.status === "no_contest"
+        );
+
+        if (settledFight) {
+          throw new Error("REORDER_SETTLED_FIGHT_AFTER_EVENT_START");
+        }
+
+        if (!eventStartedConfirmed) {
+          throw new Error(
+            "REORDER_EVENT_STARTED_CONFIRMATION_REQUIRED"
+          );
+        }
+      }
+
+      await tx.fight.updateMany({
+        where: {
+          eventId,
+          id: { in: requestedFightIds },
+        },
+        data: {
+          fightOrder: null,
+        },
+      });
+
+      for (const [index, fightId] of requestedFightIds.entries()) {
+        await tx.fight.update({
+          where: { id: fightId },
+          data: {
+            fightOrder: index + 1,
+          },
+        });
+      }
+    });
+
+    console.log("");
+    console.log("Fight reorder completed successfully.");
+    console.log(
+      `fightOrder normalized to 1-${requestedFightIds.length}.`
+    );
+  } catch (error) {
+    console.log("");
+    console.log("Reorder failed. No Fight changes were committed.");
+
+    if (error instanceof Error) {
+      switch (error.message) {
+        case "REORDER_EVENT_NOT_FOUND":
+          console.log("Reason: Event no longer exists.");
+          break;
+
+        case "REORDER_CARD_CHANGED":
+          console.log(
+            "Reason: the current ordered card changed after the confirmation screen."
+          );
+          console.log(
+            "Run Reorder fights again using the latest card."
+          );
+          break;
+
+        case "REORDER_REQUEST_DUPLICATE_FIGHT":
+        case "REORDER_LATEST_DUPLICATE_FIGHT":
+          console.log("Reason: duplicate Fight IDs detected.");
+          break;
+
+        case "REORDER_DIFFERENT_EVENT":
+          console.log(
+            "Reason: a target Fight no longer belongs to this Event."
+          );
+          break;
+
+        case "REORDER_FIGHT_ORDER_NULL":
+          console.log(
+            "Reason: a target Fight now has fightOrder=null."
+          );
+          break;
+
+        case "REORDER_SETTLED_FIGHT_AFTER_EVENT_START":
+          console.log(
+            "Reason: Event has started and the ordered card now contains a finished, draw, or no_contest Fight."
+          );
+          break;
+
+        case "REORDER_EVENT_STARTED_CONFIRMATION_REQUIRED":
+          console.log(
+            "Reason: Event started after the confirmation screen was displayed."
+          );
+          console.log(
+            "Run Reorder fights again and explicitly confirm the post-start reorder."
+          );
+          break;
+
+        default:
+          console.log("Reason: transaction failed.");
+          if (nodeEnv !== "production") {
+            console.log(error.message);
+          }
+          break;
+      }
+    }
+  }
+};
+
 const showFightMenu = async (): Promise<void> => {
   while (true) {
     console.log("");
@@ -1447,7 +1973,8 @@ const showFightMenu = async (): Promise<void> => {
     console.log("2. Edit Fight");
     console.log("3. Cancel Fight");
     console.log("4. Replace card");
-    console.log("5. Back");
+    console.log("5. Reorder fights");
+    console.log("6. Back");
     console.log("");
 
     const choice = (await rl.question("Select: ")).trim();
@@ -1465,6 +1992,9 @@ const showFightMenu = async (): Promise<void> => {
         await replaceFight();
         break;
       case "5":
+        await reorderFights();
+        break;
+      case "6":
         return;
       default:
         console.log("Invalid selection.");
