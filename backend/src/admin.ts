@@ -1,6 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 import * as readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
+import { normalizeEmail } from "./utils/normalizeEmail";
 
 const prisma = new PrismaClient();
 
@@ -2003,6 +2004,237 @@ const showFightMenu = async (): Promise<void> => {
   }
 };
 
+const setupInitialAdmin = async (): Promise<void> => {
+  console.log("");
+  console.log("Initial Admin Setup");
+
+  // Initial AdminはADMINが0人の場合のみ作成可能。
+  const adminCount = await prisma.user.count({
+    where: {
+      role: "ADMIN",
+    },
+  });
+
+  if (adminCount > 0) {
+    console.log(
+      "Error: Initial Admin Setup is unavailable because an ADMIN already exists."
+    );
+    return;
+  }
+
+  const emailInput = (
+    await rl.question("Existing USER email: ")
+  ).trim();
+
+  if (emailInput.length === 0) {
+    console.log("Error: email is required.");
+    return;
+  }
+
+  const normalizedEmail = normalizeEmail(emailInput);
+
+  const user = await prisma.user.findUnique({
+    where: {
+      email: normalizedEmail,
+    },
+  });
+
+  if (!user) {
+    console.log("Error: User not found.");
+    return;
+  }
+
+  if (user.role !== "USER") {
+    console.log("Error: target User must have role=USER.");
+    return;
+  }
+
+  if (user.emailVerifiedAt === null) {
+    console.log("Error: target User email is not verified.");
+    return;
+  }
+
+  if (user.passwordHash === null) {
+    console.log(
+      "Error: target User does not have a passwordHash."
+    );
+    return;
+  }
+
+  console.log("");
+  console.log("========================================");
+  console.log("INITIAL ADMIN SETUP");
+  console.log("========================================");
+  console.log(`NODE_ENV: ${nodeEnv}`);
+  console.log(`Database: ${getSafeDatabaseTarget()}`);
+  console.log(`Current ADMIN count: ${adminCount}`);
+  console.log("");
+  console.log("Target User");
+  console.log(`User ID: ${user.id}`);
+  console.log(`Name: ${user.name}`);
+  console.log(`Email: ${user.email}`);
+  console.log("Email verified: YES");
+  console.log("Current role: USER");
+  console.log("New role: ADMIN");
+  console.log("");
+  console.log(
+    "This operation promotes an existing verified USER to the initial ADMIN."
+  );
+
+  const confirmation = await rl.question(
+    'Type "CONFIRM" to execute: '
+  );
+
+  if (confirmation !== "CONFIRM") {
+    console.log(
+      "Confirmation failed. No database changes were made."
+    );
+    return;
+  }
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      // 確認画面後に状態が変わっていないか、
+      // transaction内で最新状態を再検証する。
+      const latestAdminCount = await tx.user.count({
+        where: {
+          role: "ADMIN",
+        },
+      });
+
+      if (latestAdminCount !== 0) {
+        throw new Error("INITIAL_ADMIN_ALREADY_EXISTS");
+      }
+
+      const latestUser = await tx.user.findUnique({
+        where: {
+          id: user.id,
+        },
+      });
+
+      if (!latestUser) {
+        throw new Error("INITIAL_ADMIN_USER_NOT_FOUND");
+      }
+
+      if (latestUser.email !== normalizedEmail) {
+        throw new Error("INITIAL_ADMIN_EMAIL_CHANGED");
+      }
+
+      if (latestUser.role !== "USER") {
+        throw new Error("INITIAL_ADMIN_ROLE_CHANGED");
+      }
+
+      if (latestUser.emailVerifiedAt === null) {
+        throw new Error(
+          "INITIAL_ADMIN_EMAIL_VERIFICATION_CHANGED"
+        );
+      }
+
+      if (latestUser.passwordHash === null) {
+        throw new Error(
+          "INITIAL_ADMIN_PASSWORD_HASH_CHANGED"
+        );
+      }
+
+      /*
+       * Safety-critical final write.
+       *
+       * The UPDATE itself re-checks every promotion condition,
+       * including the absence of any ADMIN.
+       *
+       * This is intentionally not a plain user.update():
+       * the conditional write is the final concurrency guard
+       * when multiple CLI processes race to create the initial ADMIN.
+       */
+      const updatedRows = await tx.$executeRaw`
+        UPDATE "User"
+        SET "role" = 'ADMIN'
+        WHERE "id" = ${user.id}
+          AND "email" = ${normalizedEmail}
+          AND "role" = 'USER'
+          AND "emailVerifiedAt" IS NOT NULL
+          AND "passwordHash" IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1
+            FROM "User"
+            WHERE "role" = 'ADMIN'
+          )
+      `;
+
+      if (updatedRows !== 1) {
+        throw new Error(
+          "INITIAL_ADMIN_CONCURRENT_CHANGE"
+        );
+      }
+    });
+
+    console.log("");
+    console.log("Initial Admin Setup completed successfully.");
+    console.log(`Promoted User ID: ${user.id}`);
+    console.log(`Email: ${normalizedEmail}`);
+    console.log("New role: ADMIN");
+  } catch (error) {
+    console.log("");
+    console.log(
+      "Initial Admin Setup failed. No promotion was committed."
+    );
+
+    if (error instanceof Error) {
+      switch (error.message) {
+        case "INITIAL_ADMIN_ALREADY_EXISTS":
+          console.log(
+            "Reason: an ADMIN now exists. Initial Admin Setup is no longer available."
+          );
+          break;
+
+        case "INITIAL_ADMIN_USER_NOT_FOUND":
+          console.log(
+            "Reason: the target User no longer exists."
+          );
+          break;
+
+        case "INITIAL_ADMIN_EMAIL_CHANGED":
+          console.log(
+            "Reason: the target User email changed after the confirmation screen."
+          );
+          break;
+
+        case "INITIAL_ADMIN_ROLE_CHANGED":
+          console.log(
+            "Reason: the target User role changed after the confirmation screen."
+          );
+          break;
+
+        case "INITIAL_ADMIN_EMAIL_VERIFICATION_CHANGED":
+          console.log(
+            "Reason: the target User email verification state changed after the confirmation screen."
+          );
+          break;
+
+        case "INITIAL_ADMIN_PASSWORD_HASH_CHANGED":
+          console.log(
+            "Reason: the target User passwordHash changed after the confirmation screen."
+          );
+          break;
+
+        case "INITIAL_ADMIN_CONCURRENT_CHANGE":
+          console.log(
+            "Reason: the promotion conditions changed or another process created the initial ADMIN."
+          );
+          break;
+
+        default:
+          console.log("Reason: transaction failed.");
+
+          if (nodeEnv !== "production") {
+            console.log(error.message);
+          }
+
+          break;
+      }
+    }
+  }
+};
 
 const showMainMenu = async (): Promise<void> => {
   while (true) {
@@ -2012,7 +2244,8 @@ const showMainMenu = async (): Promise<void> => {
     console.log("1. Event");
     console.log("2. Fighter");
     console.log("3. Fight");
-    console.log("4. Exit");
+    console.log("4. Initial Admin Setup");
+    console.log("5. Exit");
     console.log("");
 
     const choice = (await rl.question("Select: ")).trim();
@@ -2031,6 +2264,10 @@ const showMainMenu = async (): Promise<void> => {
         break;
 
       case "4":
+        await setupInitialAdmin();
+        break;
+
+      case "5":
         return;
 
       default:
