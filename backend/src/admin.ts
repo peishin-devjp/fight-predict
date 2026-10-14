@@ -992,15 +992,38 @@ const cancelFight = async (): Promise<void> => {
     details = await loadFightDetails(fightId);
   } catch (error) {
     console.log("Error: failed to load Fight details.");
-    if (nodeEnv !== "production" && error instanceof Error) console.log(error.message);
+    if (nodeEnv !== "production" && error instanceof Error) {
+      console.log(error.message);
+    }
     return;
   }
+
   if (!details) {
     console.log("Error: Fight not found.");
     return;
   }
 
   const { fight, event, fighter1, fighter2, predictionCount } = details;
+
+  /*
+   * Snapshot of every Fight field that must remain unchanged between
+   * the confirmation screen and the final conditional write.
+   *
+   * Prediction count is intentionally excluded. A Prediction added
+   * after this snapshot does not prevent a normal Cancel.
+   */
+  const snapshot = {
+    id: fight.id,
+    eventId: fight.eventId,
+    fighter1Id: fight.fighter1Id,
+    fighter2Id: fight.fighter2Id,
+    status: fight.status,
+    winnerId: fight.winnerId,
+    method: fight.method,
+    cancelReason: fight.cancelReason,
+    fightOrder: fight.fightOrder,
+  };
+
   console.log("");
   console.log("Current Fight:");
   console.log(`  id: ${fight.id}`);
@@ -1021,9 +1044,11 @@ const cancelFight = async (): Promise<void> => {
     console.log("!!! CONFIRMED FIGHT RESULT WILL BE OVERRIDDEN !!!");
     console.log(`Current status: ${fight.status}`);
     console.log("New status: cancelled");
+
     const confirmed = await askYesNo(
       "Are you sure you want to cancel this already-settled Fight?"
     );
+
     if (!confirmed) {
       console.log("Cancelled. No database changes were made.");
       return;
@@ -1045,22 +1070,87 @@ const cancelFight = async (): Promise<void> => {
   console.log("  method: null");
   console.log(`  fightOrder: ${fight.fightOrder ?? "null"} (unchanged)`);
 
-  if (!(await confirmWrite())) return;
+  if (!(await confirmWrite())) {
+    return;
+  }
 
   try {
-    await prisma.fight.update({
-      where: { id: fight.id },
-      data: {
-        status: "cancelled",
-        cancelReason: "STANDARD",
-        winnerId: null,
-        method: null,
-      },
+    await prisma.$transaction(async (tx) => {
+      const latestFight = await tx.fight.findUnique({
+        where: { id: snapshot.id },
+      });
+
+      if (!latestFight) {
+        throw new Error("CANCEL_FIGHT_STATE_CHANGED");
+      }
+
+      const stateUnchanged =
+        latestFight.id === snapshot.id &&
+        latestFight.eventId === snapshot.eventId &&
+        latestFight.fighter1Id === snapshot.fighter1Id &&
+        latestFight.fighter2Id === snapshot.fighter2Id &&
+        latestFight.status === snapshot.status &&
+        latestFight.winnerId === snapshot.winnerId &&
+        latestFight.method === snapshot.method &&
+        latestFight.cancelReason === snapshot.cancelReason &&
+        latestFight.fightOrder === snapshot.fightOrder;
+
+      if (!stateUnchanged) {
+        throw new Error("CANCEL_FIGHT_STATE_CHANGED");
+      }
+
+      const result = await tx.fight.updateMany({
+        where: {
+          id: snapshot.id,
+          eventId: snapshot.eventId,
+          fighter1Id: snapshot.fighter1Id,
+          fighter2Id: snapshot.fighter2Id,
+          status: snapshot.status,
+          winnerId: snapshot.winnerId,
+          method: snapshot.method,
+          cancelReason: snapshot.cancelReason,
+          fightOrder: snapshot.fightOrder,
+        },
+        data: {
+          status: "cancelled",
+          cancelReason: "STANDARD",
+          winnerId: null,
+          method: null,
+        },
+      });
+
+      if (result.count !== 1) {
+        throw new Error("CANCEL_FIGHT_CONCURRENT_CHANGE");
+      }
     });
+
     console.log("Fight cancelled successfully.");
   } catch (error) {
-    console.log("Error: failed to cancel Fight.");
-    if (nodeEnv !== "production" && error instanceof Error) console.log(error.message);
+    if (
+      error instanceof Error &&
+      (error.message === "CANCEL_FIGHT_STATE_CHANGED" ||
+        error.message === "CANCEL_FIGHT_CONCURRENT_CHANGE")
+    ) {
+      console.log("");
+      console.log("Cancel aborted. No Fight changes were committed.");
+      console.log(
+        "Reason: Fight state changed after the confirmation screen."
+      );
+      console.log(
+        "Please restart Fight Cancel and review the latest Fight state."
+      );
+      return;
+    }
+
+    console.log("");
+    console.log("Cancel failed. No Fight changes were committed.");
+    console.log(
+      "Please verify the current Fight state and retry the operation manually."
+    );
+
+    if (nodeEnv !== "production" && error instanceof Error) {
+      console.log(error.message);
+    }
   }
 };
 
