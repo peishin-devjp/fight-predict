@@ -848,25 +848,49 @@ const editFight = async (): Promise<void> => {
 
   const fightIdInput = (await rl.question("Fight ID: ")).trim();
   const fightId = parsePositiveInteger(fightIdInput);
+
   if (fightId === null) {
     console.log("Error: invalid Fight ID.");
     return;
   }
 
   let details;
+
   try {
     details = await loadFightDetails(fightId);
   } catch (error) {
     console.log("Error: failed to load Fight details.");
-    if (nodeEnv !== "production" && error instanceof Error) console.log(error.message);
+
+    if (nodeEnv !== "production" && error instanceof Error) {
+      console.log(error.message);
+    }
+
     return;
   }
+
   if (!details) {
     console.log("Error: Fight not found.");
     return;
   }
 
   const { fight, event, fighter1, fighter2, predictionCount } = details;
+
+  /*
+   * Snapshot of every Fight field that must remain unchanged between
+   * the confirmation screen and the final conditional write.
+   */
+  const snapshot = {
+    id: fight.id,
+    eventId: fight.eventId,
+    fighter1Id: fight.fighter1Id,
+    fighter2Id: fight.fighter2Id,
+    status: fight.status,
+    winnerId: fight.winnerId,
+    method: fight.method,
+    cancelReason: fight.cancelReason,
+    fightOrder: fight.fightOrder,
+  };
+
   console.log("");
   console.log("Current Fight:");
   console.log(`  id: ${fight.id}`);
@@ -877,28 +901,54 @@ const editFight = async (): Promise<void> => {
   console.log(`  status: ${fight.status}`);
   console.log(`  Prediction count: ${predictionCount}`);
 
+  if (fight.status !== "scheduled") {
+    console.log("");
+    console.log(
+      `Fight cannot be edited because status is ${fight.status}.`
+    );
+    console.log("Only scheduled Fight can be edited.");
+    return;
+  }
+
   if (predictionCount > 0) {
     console.log("");
-    console.log("Fight cannot be edited because Predictions already exist.");
-    console.log("Use Replace card in Phase 3-C instead of changing the Fighters directly.");
+    console.log(
+      "Fight cannot be edited because Predictions already exist."
+    );
+    console.log(
+      "Use Replace card instead of changing the Fighters directly."
+    );
     return;
   }
 
   console.log("");
-  console.log("Enter a new value, or press Enter to keep the current value.");
-  const fighter1Input = (await rl.question(`fighter1 ID [${fighter1.id}]: `)).trim();
+  console.log(
+    "Enter a new value, or press Enter to keep the current value."
+  );
+
+  const fighter1Input = (
+    await rl.question(`fighter1 ID [${fighter1.id}]: `)
+  ).trim();
+
   let newFighter1 = fighter1;
+
   if (fighter1Input !== "") {
     const id = parsePositiveInteger(fighter1Input);
+
     if (id === null) {
       console.log("Error: invalid fighter1 ID.");
       return;
     }
-    const selected = await prisma.fighter.findUnique({ where: { id } });
+
+    const selected = await prisma.fighter.findUnique({
+      where: { id },
+    });
+
     if (!selected) {
       console.log("Error: fighter1 not found.");
       return;
     }
+
     newFighter1 = selected;
     console.log(`Selected fighter1: ${formatFighter(selected)}`);
   }
@@ -906,21 +956,32 @@ const editFight = async (): Promise<void> => {
   const fighter2Prompt = fighter2
     ? `fighter2 ID [${fighter2.id}] (Enter=keep, NULL=unset): `
     : "fighter2 ID [TBD] (Enter=keep, ID=set): ";
-  const fighter2Input = (await rl.question(fighter2Prompt)).trim();
+
+  const fighter2Input = (
+    await rl.question(fighter2Prompt)
+  ).trim();
+
   let newFighter2 = fighter2;
+
   if (fighter2Input.toUpperCase() === "NULL") {
     newFighter2 = null;
   } else if (fighter2Input !== "") {
     const id = parsePositiveInteger(fighter2Input);
+
     if (id === null) {
       console.log("Error: invalid fighter2 ID.");
       return;
     }
-    const selected = await prisma.fighter.findUnique({ where: { id } });
+
+    const selected = await prisma.fighter.findUnique({
+      where: { id },
+    });
+
     if (!selected) {
       console.log("Error: fighter2 not found.");
       return;
     }
+
     newFighter2 = selected;
     console.log(`Selected fighter2: ${formatFighter(selected)}`);
   }
@@ -948,31 +1009,124 @@ const editFight = async (): Promise<void> => {
   console.log(`  fighter1: ${formatFighter(newFighter1)}`);
   console.log(`  fighter2: ${formatFighter(newFighter2)}`);
 
-  if (!(await confirmWrite())) return;
+  if (!(await confirmWrite())) {
+    return;
+  }
 
   try {
     await prisma.$transaction(async (tx) => {
-      const latestPredictionCount = await tx.prediction.count({ where: { fightId: fight.id } });
-      if (latestPredictionCount > 0) {
-        throw new Error("PREDICTIONS_EXIST");
+      /*
+       * Re-read the Fight inside the transaction so a stale
+       * confirmation screen cannot silently overwrite a newer state.
+       */
+      const latestFight = await tx.fight.findUnique({
+        where: { id: snapshot.id },
+      });
+
+      if (!latestFight) {
+        throw new Error("EDIT_FIGHT_STATE_CHANGED");
       }
-      await tx.fight.update({
-        where: { id: fight.id },
+
+      const stateUnchanged =
+        latestFight.id === snapshot.id &&
+        latestFight.eventId === snapshot.eventId &&
+        latestFight.fighter1Id === snapshot.fighter1Id &&
+        latestFight.fighter2Id === snapshot.fighter2Id &&
+        latestFight.status === snapshot.status &&
+        latestFight.winnerId === snapshot.winnerId &&
+        latestFight.method === snapshot.method &&
+        latestFight.cancelReason === snapshot.cancelReason &&
+        latestFight.fightOrder === snapshot.fightOrder;
+
+      if (!stateUnchanged) {
+        throw new Error("EDIT_FIGHT_STATE_CHANGED");
+      }
+
+      if (latestFight.status !== "scheduled") {
+        throw new Error("EDIT_FIGHT_NOT_SCHEDULED");
+      }
+
+      const latestPredictionCount = await tx.prediction.count({
+        where: { fightId: snapshot.id },
+      });
+
+      if (latestPredictionCount !== 0) {
+        throw new Error("EDIT_FIGHT_PREDICTIONS_EXIST");
+      }
+
+      /*
+       * Final compare-and-swap guard.
+       *
+       * Every Fight field shown/relied upon before confirmation is
+       * included in the WHERE condition. A concurrent Fight change
+       * therefore makes this update affect zero rows.
+       */
+      const result = await tx.fight.updateMany({
+        where: {
+          id: snapshot.id,
+          eventId: snapshot.eventId,
+          fighter1Id: snapshot.fighter1Id,
+          fighter2Id: snapshot.fighter2Id,
+          status: snapshot.status,
+          winnerId: snapshot.winnerId,
+          method: snapshot.method,
+          cancelReason: snapshot.cancelReason,
+          fightOrder: snapshot.fightOrder,
+        },
         data: {
           fighter1Id: newFighter1.id,
           fighter2Id: newFighter2?.id ?? null,
         },
       });
+
+      if (result.count !== 1) {
+        throw new Error("EDIT_FIGHT_CONCURRENT_CHANGE");
+      }
     });
+
     console.log("Fight updated successfully.");
   } catch (error) {
-    if (error instanceof Error && error.message === "PREDICTIONS_EXIST") {
-      console.log("Update cancelled: a Prediction was added before the write completed.");
-      console.log("No Fight changes were made.");
+    if (
+      error instanceof Error &&
+      (error.message === "EDIT_FIGHT_STATE_CHANGED" ||
+        error.message === "EDIT_FIGHT_NOT_SCHEDULED" ||
+        error.message === "EDIT_FIGHT_CONCURRENT_CHANGE")
+    ) {
+      console.log("");
+      console.log("Update aborted. No Fight changes were committed.");
+      console.log(
+        "Reason: Fight state changed after the confirmation screen."
+      );
+      console.log(
+        "Please restart Fight Edit and review the latest Fight state."
+      );
       return;
     }
-    console.log("Error: failed to update Fight.");
-    if (nodeEnv !== "production" && error instanceof Error) console.log(error.message);
+
+    if (
+      error instanceof Error &&
+      error.message === "EDIT_FIGHT_PREDICTIONS_EXIST"
+    ) {
+      console.log("");
+      console.log("Update aborted. No Fight changes were committed.");
+      console.log(
+        "Reason: a Prediction exists for this Fight."
+      );
+      console.log(
+        "Use Replace card instead of changing the Fighters directly."
+      );
+      return;
+    }
+
+    console.log("");
+    console.log("Fight Edit failed. No Fight changes were committed.");
+    console.log(
+      "Please verify the current Fight state and retry the operation manually."
+    );
+
+    if (nodeEnv !== "production" && error instanceof Error) {
+      console.log(error.message);
+    }
   }
 };
 
