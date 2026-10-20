@@ -277,6 +277,13 @@ const editEvent = async (): Promise<void> => {
     return;
   }
 
+  const snapshot = {
+    id: event.id,
+    name: event.name,
+    date: event.date,
+    deadline: event.deadline,
+  };
+
   const now = new Date();
   const deadlinePassed = now >= event.deadline;
   const eventStarted = now >= event.date;
@@ -369,19 +376,21 @@ const editEvent = async (): Promise<void> => {
     return;
   }
 
-  if (!deadlinePassed && newDeadline <= now) {
+  const deadlineChanged =
+    newDeadline.getTime() !== event.deadline.getTime();
+
+  if (deadlineChanged && newDeadline <= now) {
     console.log(
       "Error: new prediction deadline must be in the future."
     );
     return;
   }
 
-  const changed =
-    newName !== event.name ||
-    newDate.getTime() !== event.date.getTime() ||
-    newDeadline.getTime() !== event.deadline.getTime();
+  const nameChanged = newName !== event.name;
+  const dateChanged =
+    newDate.getTime() !== event.date.getTime();
 
-  if (!changed) {
+  if (!nameChanged && !dateChanged && !deadlineChanged) {
     console.log("No changes.");
     return;
   }
@@ -407,23 +416,162 @@ const editEvent = async (): Promise<void> => {
   }
 
   try {
-    await prisma.event.update({
-      where: {
-        id: event.id,
-      },
-      data: {
-        name: newName,
-        date: newDate,
-        deadline: newDeadline,
-      },
+    await prisma.$transaction(async (tx) => {
+      const latestEvent = await tx.event.findUnique({
+        where: {
+          id: snapshot.id,
+        },
+      });
+
+      if (!latestEvent) {
+        throw new Error("EVENT_EDIT_NOT_FOUND");
+      }
+
+      if (
+        latestEvent.name !== snapshot.name ||
+        latestEvent.date.getTime() !== snapshot.date.getTime() ||
+        latestEvent.deadline.getTime() !==
+          snapshot.deadline.getTime()
+      ) {
+        throw new Error("EVENT_EDIT_STATE_CHANGED");
+      }
+
+      if (newDeadline >= newDate) {
+        throw new Error("EVENT_EDIT_INVALID_DATE_ORDER");
+      }
+
+      /*
+       * Only fields actually changed by the operator are written.
+       *
+       * A deadline change has stricter requirements:
+       * the final UPDATE itself must verify, using SQLite's clock,
+       * that both the old deadline and the proposed new deadline
+       * are still in the future when the UPDATE condition is
+       * evaluated.
+       *
+       * Prisma stores SQLite DateTime values as INTEGER Unix epoch
+       * milliseconds. SQLite 3.46.0 provides sub-second unixepoch(),
+       * so the comparison is performed in the same millisecond unit.
+       */
+      if (deadlineChanged) {
+        const assignments: string[] = [];
+        const parameters: unknown[] = [];
+
+        if (nameChanged) {
+          assignments.push(`"name" = ?`);
+          parameters.push(newName);
+        }
+
+        if (dateChanged) {
+          assignments.push(`"date" = ?`);
+          parameters.push(newDate.getTime());
+        }
+
+        assignments.push(`"deadline" = ?`);
+        parameters.push(newDeadline.getTime());
+
+        /*
+         * Snapshot values are part of the final CAS.
+         * SQLite's current time is evaluated by the UPDATE statement,
+         * not by application-side Date.now().
+         */
+        parameters.push(
+          snapshot.id,
+          snapshot.name,
+          snapshot.date.getTime(),
+          snapshot.deadline.getTime(),
+          snapshot.deadline.getTime(),
+          newDeadline.getTime()
+        );
+
+        const sql = `
+          UPDATE "Event"
+          SET ${assignments.join(", ")}
+          WHERE "id" = ?
+            AND "name" = ?
+            AND "date" = ?
+            AND "deadline" = ?
+            AND CAST(unixepoch('now', 'subsec') * 1000 AS INTEGER) < ?
+            AND CAST(unixepoch('now', 'subsec') * 1000 AS INTEGER) < ?
+        `;
+
+        const updatedRows = await tx.$executeRawUnsafe(
+          sql,
+          ...parameters
+        );
+
+        if (updatedRows !== 1) {
+          throw new Error("EVENT_EDIT_CONCURRENT_CHANGE");
+        }
+
+        return;
+      }
+
+      const data: {
+        name?: string;
+        date?: Date;
+      } = {};
+
+      if (nameChanged) {
+        data.name = newName;
+      }
+
+      if (dateChanged) {
+        data.date = newDate;
+      }
+
+      const result = await tx.event.updateMany({
+        where: {
+          id: snapshot.id,
+          name: snapshot.name,
+          date: snapshot.date,
+          deadline: snapshot.deadline,
+        },
+        data,
+      });
+
+      if (result.count !== 1) {
+        throw new Error("EVENT_EDIT_CONCURRENT_CHANGE");
+      }
     });
 
     console.log("Event updated successfully.");
   } catch (error) {
-    console.log("Error: failed to update Event.");
+    console.log(
+      "Event Edit failed. No Event changes were committed."
+    );
 
-    if (nodeEnv !== "production" && error instanceof Error) {
-      console.log(error.message);
+    if (error instanceof Error) {
+      switch (error.message) {
+        case "EVENT_EDIT_NOT_FOUND":
+          console.log("Reason: Event no longer exists.");
+          break;
+
+        case "EVENT_EDIT_STATE_CHANGED":
+        case "EVENT_EDIT_CONCURRENT_CHANGE":
+          console.log(
+            "Reason: Event state changed after the confirmation screen, or a deadline time boundary was reached."
+          );
+          console.log(
+            "Run Event Edit again using the latest Event state."
+          );
+          break;
+
+        case "EVENT_EDIT_INVALID_DATE_ORDER":
+          console.log(
+            "Reason: prediction deadline must be earlier than event date."
+          );
+          break;
+
+        default:
+          console.log("Reason: transaction failed.");
+
+          if (nodeEnv !== "production") {
+            console.log(error.message);
+          }
+
+          break;
+      }
     }
   }
 };

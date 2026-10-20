@@ -875,206 +875,419 @@ app.post("/predictions", requireAuth, async (req, res) => {
     });
   }
 
-  // 対象Fightを取得
-  const fights = await prisma.fight.findMany({
-    where: {
-      id: {
-        in: fightIds,
-      },
-    },
-  });
+  type PredictionTransactionError = {
+    status: number;
+    code: string;
+    message: string;
+  };
 
-  if (fights.length !== fightIds.length) {
-    return res.status(400).json({
-      success: false,
-      code: "INVALID_FIGHT",
-      message: "Invalid fight",
-    });
-  }
+  class PredictionSaveError extends Error {
+    status: number;
+    code: string;
 
-  // すべて同一Eventに属することを確認
-  const eventIds = [...new Set(fights.map((fight) => fight.eventId))];
-
-  if (eventIds.length !== 1) {
-    return res.status(400).json({
-      success: false,
-      code: "MULTIPLE_EVENTS",
-      message: "Predictions must belong to one event",
-    });
-  }
-
-  const eventId = eventIds[0];
-
-  if (eventId === undefined) {
-    return res.status(400).json({
-      success: false,
-      code: "EVENT_NOT_FOUND",
-      message: "Event not found",
-    });
-  }
-
-  // Eventを取得
-  const event = await prisma.event.findUnique({
-    where: {
-      id: eventId,
-    },
-  });
-
-  if (!event) {
-    return res.status(400).json({
-      success: false,
-      code: "EVENT_NOT_FOUND",
-      message: "Event not found",
-    });
-  }
-
-  // deadline以降はPrediction保存・更新不可
-  if (new Date() >= event.deadline) {
-    return res.status(403).json({
-      success: false,
-      code: "PREDICTION_DEADLINE_PASSED",
-      message: "Prediction deadline has passed",
-    });
-  }
-
-  // Prediction可能なFightか検証
-  for (const prediction of predictions) {
-    const fight = fights.find(
-      (fight) => fight.id === prediction.fightId
-    );
-
-    if (!fight) {
-      return res.status(400).json({
-        success: false,
-        code: "INVALID_FIGHT",
-        message: "Invalid fight",
-      });
-    }
-
-    if (fight.status !== "scheduled") {
-      return res.status(409).json({
-        success: false,
-        code: "FIGHT_NOT_OPEN_FOR_PREDICTION",
-        message: "Fight is not open for prediction",
-      });
-    }
-
-    if (fight.fighter2Id === null) {
-      return res.status(409).json({
-        success: false,
-        code: "FIGHTER2_NOT_SET",
-        message: "Prediction is not available until fighter2 is set",
-      });
-    }
-
-    if (
-      prediction.predictedWinnerId !== fight.fighter1Id &&
-      prediction.predictedWinnerId !== fight.fighter2Id
-    ) {
-      return res.status(400).json({
-        success: false,
-        code: "INVALID_PREDICTED_WINNER",
-        message: "predictedWinnerId must belong to the fight",
-      });
+    constructor(error: PredictionTransactionError) {
+      super(error.message);
+      this.name = "PredictionSaveError";
+      this.status = error.status;
+      this.code = error.code;
     }
   }
 
-  // 対象Eventの全Fightと既存Predictionを取得
-  const eventFights = await prisma.fight.findMany({
-    where: {
-      eventId: eventId,
-    },
-  });
-
-  const eventFightIds = eventFights.map((fight) => fight.id);
-
-  const existingPredictions = await prisma.prediction.findMany({
-    where: {
-      userId: userId,
-      fightId: {
-        in: eventFightIds,
-      },
-    },
-  });
-
-  // 更新後のEvent合計が100pt以内か検証
-  const mergedPredictions = eventFightIds.map((fightId) => {
-    const fight = eventFights.find((fight) => fight.id === fightId);
-
-    const isVoidFight =
-      fight?.status === "cancelled" &&
-      fight.cancelReason === "REPLACED_BEFORE_DEADLINE";
-
-    if (isVoidFight) {
-      return {
-        fightId: fightId,
-        point: 0,
-      };
-    }
-
-    const incomingPrediction = predictions.find(
-      (prediction: any) => prediction.fightId === fightId
-    );
-
-    if (incomingPrediction) {
-      return {
-        fightId: fightId,
-        point: incomingPrediction.point,
-      };
-    }
-
-    const existingPrediction = existingPredictions.find(
-      (prediction) => prediction.fightId === fightId
-    );
-
-    return {
-      fightId: fightId,
-      point: existingPrediction?.point ?? 0,
-    };
-  });
-
-  const totalPoint = mergedPredictions.reduce(
-    (sum, prediction) => sum + prediction.point,
-    0
-  );
-
-  if (totalPoint > MAX_EVENT_POINTS) {
-    return res.status(400).json({
-      success: false,
-      code: "EVENT_POINT_LIMIT_EXCEEDED",
-      message: `Total points exceed ${MAX_EVENT_POINTS}`,
-    });
-  }
-
-  // Predictionを試合ごとに新規保存または更新
-  const savedPredictions = await prisma.$transaction(
-    predictions.map((prediction: any) =>
-      prisma.prediction.upsert({
-        where: {
-          userId_fightId: {
-            userId: userId,
-            fightId: prediction.fightId,
+  try {
+    const savedPredictions = await prisma.$transaction(
+      async (tx) => {
+        // 対象Fightを最初に取得し、Eventを特定する。
+        // この取得結果はロック取得後に必ず再取得・再検証する。
+        const initialFights = await tx.fight.findMany({
+          where: {
+            id: {
+              in: fightIds,
+            },
           },
-        },
-        update: {
-          predictedWinnerId: prediction.predictedWinnerId,
-          point: prediction.point,
-        },
-        create: {
-          userId: userId,
-          fightId: prediction.fightId,
-          predictedWinnerId: prediction.predictedWinnerId,
-          point: prediction.point,
-        },
-      })
-    )
-  );
+        });
 
-  return res.status(200).json({
-    success: true,
-    message: "Predictions saved",
-    result: savedPredictions,
-  });
+        if (initialFights.length !== fightIds.length) {
+          throw new PredictionSaveError({
+            status: 400,
+            code: "INVALID_FIGHT",
+            message: "Invalid fight",
+          });
+        }
+
+        const initialEventIds = [
+          ...new Set(
+            initialFights.map((fight) => fight.eventId)
+          ),
+        ];
+
+        if (initialEventIds.length !== 1) {
+          throw new PredictionSaveError({
+            status: 400,
+            code: "MULTIPLE_EVENTS",
+            message: "Predictions must belong to one event",
+          });
+        }
+
+        const eventId = initialEventIds[0];
+
+        if (eventId === undefined) {
+          throw new PredictionSaveError({
+            status: 400,
+            code: "EVENT_NOT_FOUND",
+            message: "Event not found",
+          });
+        }
+
+        /*
+         * SQLiteではinteractive transaction開始だけでは
+         * write lockを取得しない。
+         *
+         * Eventの値を変更しないno-op UPDATEを最初の書き込みとして
+         * 実行し、最新状態の検証前にwrite lockを取得する。
+         *
+         * 現行EventにはupdatedAtおよびUPDATE triggerがないことを
+         * Phase 3-F-1fで確認済み。
+         */
+        const lockCount = await tx.$executeRawUnsafe(
+          `
+          UPDATE "Event"
+          SET "name" = "name"
+          WHERE "id" = ?
+          `,
+          eventId
+        );
+
+        if (lockCount !== 1) {
+          throw new PredictionSaveError({
+            status: 400,
+            code: "EVENT_NOT_FOUND",
+            message: "Event not found",
+          });
+        }
+
+        // write lock取得後の最新Fightを再取得
+        const fights = await tx.fight.findMany({
+          where: {
+            id: {
+              in: fightIds,
+            },
+          },
+        });
+
+        if (fights.length !== fightIds.length) {
+          throw new PredictionSaveError({
+            status: 400,
+            code: "INVALID_FIGHT",
+            message: "Invalid fight",
+          });
+        }
+
+        // 最新状態でもすべて同一Eventに属することを確認
+        const eventIds = [
+          ...new Set(
+            fights.map((fight) => fight.eventId)
+          ),
+        ];
+
+        if (
+          eventIds.length !== 1 ||
+          eventIds[0] !== eventId
+        ) {
+          throw new PredictionSaveError({
+            status: 400,
+            code: "MULTIPLE_EVENTS",
+            message: "Predictions must belong to one event",
+          });
+        }
+
+        // write lock取得後の最新Eventを取得
+        const event = await tx.event.findUnique({
+          where: {
+            id: eventId,
+          },
+        });
+
+        if (!event) {
+          throw new PredictionSaveError({
+            status: 400,
+            code: "EVENT_NOT_FOUND",
+            message: "Event not found",
+          });
+        }
+
+        /*
+         * ここでのdeadline確認は早期エラー判定用。
+         * 保存可否の最終判定は各conditional upsert SQL内の
+         * SQLite DB clockで行う。
+         */
+        const deadlineOpenRows =
+          await tx.$queryRawUnsafe<{ isOpen: bigint }[]>(
+            `
+            SELECT
+              CASE
+                WHEN CAST(
+                  unixepoch('now', 'subsec') * 1000
+                  AS INTEGER
+                ) < ?
+                THEN 1
+                ELSE 0
+              END AS "isOpen"
+            `,
+            event.deadline.getTime()
+          );
+
+        if (deadlineOpenRows[0]?.isOpen !== BigInt(1)) {
+          throw new PredictionSaveError({
+            status: 403,
+            code: "PREDICTION_DEADLINE_PASSED",
+            message: "Prediction deadline has passed",
+          });
+        }
+
+        // 最新Fight状態でPrediction可能か再検証
+        for (const prediction of predictions) {
+          const fight = fights.find(
+            (fight) => fight.id === prediction.fightId
+          );
+
+          if (!fight) {
+            throw new PredictionSaveError({
+              status: 400,
+              code: "INVALID_FIGHT",
+              message: "Invalid fight",
+            });
+          }
+
+          if (fight.status !== "scheduled") {
+            throw new PredictionSaveError({
+              status: 409,
+              code: "FIGHT_NOT_OPEN_FOR_PREDICTION",
+              message: "Fight is not open for prediction",
+            });
+          }
+
+          if (fight.fighter2Id === null) {
+            throw new PredictionSaveError({
+              status: 409,
+              code: "FIGHTER2_NOT_SET",
+              message:
+                "Prediction is not available until fighter2 is set",
+            });
+          }
+
+          if (
+            prediction.predictedWinnerId !==
+              fight.fighter1Id &&
+            prediction.predictedWinnerId !==
+              fight.fighter2Id
+          ) {
+            throw new PredictionSaveError({
+              status: 400,
+              code: "INVALID_PREDICTED_WINNER",
+              message:
+                "predictedWinnerId must belong to the fight",
+            });
+          }
+        }
+
+        // write lock取得後の最新Event全Fightを取得
+        const eventFights = await tx.fight.findMany({
+          where: {
+            eventId,
+          },
+        });
+
+        const eventFightIds = eventFights.map(
+          (fight) => fight.id
+        );
+
+        // write lock取得後の最新Predictionを取得
+        const existingPredictions =
+          await tx.prediction.findMany({
+            where: {
+              userId,
+              fightId: {
+                in: eventFightIds,
+              },
+            },
+          });
+
+        /*
+         * 更新後のEvent合計が100pt以内か検証。
+         * REPLACED_BEFORE_DEADLINEは従来仕様どおりVOIDとして0pt。
+         */
+        const mergedPredictions = eventFightIds.map(
+          (fightId) => {
+            const fight = eventFights.find(
+              (fight) => fight.id === fightId
+            );
+
+            const isVoidFight =
+              fight?.status === "cancelled" &&
+              fight.cancelReason ===
+                "REPLACED_BEFORE_DEADLINE";
+
+            if (isVoidFight) {
+              return {
+                fightId,
+                point: 0,
+              };
+            }
+
+            const incomingPrediction =
+              predictions.find(
+                (prediction: any) =>
+                  prediction.fightId === fightId
+              );
+
+            if (incomingPrediction) {
+              return {
+                fightId,
+                point: incomingPrediction.point,
+              };
+            }
+
+            const existingPrediction =
+              existingPredictions.find(
+                (prediction) =>
+                  prediction.fightId === fightId
+              );
+
+            return {
+              fightId,
+              point: existingPrediction?.point ?? 0,
+            };
+          }
+        );
+
+        const totalPoint = mergedPredictions.reduce(
+          (sum, prediction) =>
+            sum + prediction.point,
+          0
+        );
+
+        if (totalPoint > MAX_EVENT_POINTS) {
+          throw new PredictionSaveError({
+            status: 400,
+            code: "EVENT_POINT_LIMIT_EXCEEDED",
+            message: `Total points exceed ${MAX_EVENT_POINTS}`,
+          });
+        }
+
+        /*
+         * Predictionを1件ずつ条件付きupsert。
+         *
+         * 最終SQL評価時のSQLite DB clockが
+         * 最新Event.deadlineより前の場合だけ保存する。
+         *
+         * 途中の1件でもdeadline到達により0行となれば例外を投げ、
+         * transaction全体をrollbackする。
+         */
+        for (const prediction of predictions) {
+          const savedCount =
+            await tx.$executeRawUnsafe(
+              `
+              INSERT INTO "Prediction"
+                (
+                  "userId",
+                  "fightId",
+                  "predictedWinnerId",
+                  "point"
+                )
+              SELECT ?, ?, ?, ?
+              WHERE CAST(
+                unixepoch('now', 'subsec') * 1000
+                AS INTEGER
+              ) < (
+                SELECT e."deadline"
+                FROM "Event" e
+                JOIN "Fight" f
+                  ON f."eventId" = e."id"
+                WHERE
+                  f."id" = ?
+                  AND e."id" = ?
+              )
+              ON CONFLICT("userId", "fightId")
+              DO UPDATE SET
+                "predictedWinnerId" =
+                  excluded."predictedWinnerId",
+                "point" = excluded."point"
+              `,
+              userId,
+              prediction.fightId,
+              prediction.predictedWinnerId,
+              prediction.point,
+              prediction.fightId,
+              eventId
+            );
+
+          if (savedCount !== 1) {
+            throw new PredictionSaveError({
+              status: 403,
+              code: "PREDICTION_DEADLINE_PASSED",
+              message: "Prediction deadline has passed",
+            });
+          }
+        }
+
+        /*
+         * 従来のPrisma upsertと同じAPIレスポンスを維持するため、
+         * 保存後Predictionを入力順で取得して返す。
+         */
+        const savedPredictionRows =
+          await tx.prediction.findMany({
+            where: {
+              userId,
+              fightId: {
+                in: fightIds,
+              },
+            },
+          });
+
+        const savedPredictionByFightId = new Map(
+          savedPredictionRows.map((prediction) => [
+            prediction.fightId,
+            prediction,
+          ])
+        );
+
+        const orderedSavedPredictions =
+          predictions.map((prediction: any) =>
+            savedPredictionByFightId.get(
+              prediction.fightId
+            )
+          );
+
+        if (
+          orderedSavedPredictions.some(
+            (prediction) => prediction === undefined
+          )
+        ) {
+          throw new Error(
+            "Prediction save result could not be reconstructed"
+          );
+        }
+
+        return orderedSavedPredictions;
+      }
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Predictions saved",
+      result: savedPredictions,
+    });
+  } catch (error) {
+    if (error instanceof PredictionSaveError) {
+      return res.status(error.status).json({
+        success: false,
+        code: error.code,
+        message: error.message,
+      });
+    }
+
+    throw error;
+  }
 });
 
 
