@@ -724,6 +724,11 @@ const editFighter = async (): Promise<void> => {
     return;
   }
 
+  const fighterSnapshot = {
+    id: fighter.id,
+    name: fighter.name,
+  };
+
   console.log("");
   console.log("Current Fighter:");
   console.log(`  id: ${fighter.id}`);
@@ -768,13 +773,34 @@ const editFighter = async (): Promise<void> => {
       return;
     }
 
-    await prisma.fighter.update({
-      where: {
-        id: fighter.id,
-      },
-      data: {
-        name: newName,
-      },
+    await prisma.$transaction(async (tx) => {
+      const latestFighter = await tx.fighter.findUnique({
+        where: {
+          id: fighterSnapshot.id,
+        },
+      });
+
+      if (!latestFighter) {
+        throw new Error("FIGHTER_EDIT_NOT_FOUND");
+      }
+
+      if (latestFighter.name !== fighterSnapshot.name) {
+        throw new Error("FIGHTER_EDIT_STATE_CHANGED");
+      }
+
+      const result = await tx.fighter.updateMany({
+        where: {
+          id: fighterSnapshot.id,
+          name: fighterSnapshot.name,
+        },
+        data: {
+          name: newName,
+        },
+      });
+
+      if (result.count !== 1) {
+        throw new Error("FIGHTER_EDIT_CONCURRENT_CHANGE");
+      }
     });
 
     console.log("Fighter updated successfully.");
