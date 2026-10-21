@@ -57,11 +57,13 @@ model Event {
   date       DateTime
   deadline   DateTime
   createdAt  DateTime @default(now())
+  fights    Fight[]
 }
 
 model Fight {
   id        Int      @id @default(autoincrement())
   eventId   Int
+  event   Event @relation(fields: [eventId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   fighter1Id Int
   fighter2Id Int?
   fightOrder Int?
