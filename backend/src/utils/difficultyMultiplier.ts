@@ -1,3 +1,5 @@
+import Decimal from "decimal.js";
+
 const MULTIPLIER_TABLE = [
   { supportRate: 5, multiplier: 4.5 },
   { supportRate: 10, multiplier: 4.0 },
@@ -17,17 +19,19 @@ const MAX_SUPPORT_RATE = 95;
 const MAX_MULTIPLIER = 4.5;
 const MIN_MULTIPLIER = 1.05;
 
-export const calculateDifficultyMultiplier = (
-  supportRate: number
-): number => {
+export const calculateDifficultyMultiplierDecimal = (
+  supportRate: Decimal.Value
+): Decimal => {
+  const supportRateDecimal = new Decimal(supportRate);
+
   // 5%以下は最大倍率で固定
-  if (supportRate <= MIN_SUPPORT_RATE) {
-    return MAX_MULTIPLIER;
+  if (supportRateDecimal.lte(MIN_SUPPORT_RATE)) {
+    return new Decimal(MAX_MULTIPLIER);
   }
 
   // 95%以上は最小倍率で固定
-  if (supportRate >= MAX_SUPPORT_RATE) {
-    return MIN_MULTIPLIER;
+  if (supportRateDecimal.gte(MAX_SUPPORT_RATE)) {
+    return new Decimal(MIN_MULTIPLIER);
   }
 
   // supportRateを挟む2つの基準値を探す
@@ -36,24 +40,31 @@ export const calculateDifficultyMultiplier = (
     const upper = MULTIPLIER_TABLE[i + 1];
 
     if (!lower || !upper) {
-        continue;
+      continue;
     }
 
     if (
-      supportRate >= lower.supportRate &&
-      supportRate <= upper.supportRate
+      supportRateDecimal.gte(lower.supportRate) &&
+      supportRateDecimal.lte(upper.supportRate)
     ) {
-      // 2つの基準値の間を線形補間
-      const ratio =
-        (supportRate - lower.supportRate) /
-        (upper.supportRate - lower.supportRate);
+      // 2つの基準値の間をDecimalで線形補間
+      const ratio = supportRateDecimal
+        .minus(lower.supportRate)
+        .div(new Decimal(upper.supportRate).minus(lower.supportRate));
 
-      return (
-        lower.multiplier +
-        (upper.multiplier - lower.multiplier) * ratio
+      return new Decimal(lower.multiplier).plus(
+        new Decimal(upper.multiplier)
+          .minus(lower.multiplier)
+          .times(ratio)
       );
     }
   }
 
   throw new Error("Unable to calculate difficulty multiplier");
+};
+
+export const calculateDifficultyMultiplier = (
+  supportRate: number
+): number => {
+  return calculateDifficultyMultiplierDecimal(supportRate).toNumber();
 };

@@ -1,6 +1,6 @@
-import { calculateDifficultyMultiplier } from "./difficultyMultiplier";
-import { calculateSupportRate } from "./calculateSupportRate";
-import { calculateEarnedPoint } from "./calculateEarnedPoint";
+import { calculateSupportRateDecimal } from "./calculateSupportRate";
+import { calculateDifficultyMultiplierDecimal } from "./difficultyMultiplier";
+import { calculateEarnedPointDecimal } from "./calculateEarnedPoint";
 
 type PredictionForResult = {
   id: number;
@@ -35,13 +35,17 @@ export const calculatePredictionResult = (
   fightPredictions: PredictionForSupportRate[]
 ): PredictionResult => {
   // 予想人数から支持率を計算
-  const supportRate = calculateSupportRate(
+  const supportRateDecimal = calculateSupportRateDecimal(
     fightPredictions,
     prediction.predictedWinnerId
   );
 
+  const supportRate = supportRateDecimal.toNumber();
+
   // 支持率から難易度倍率を計算
-  const multiplier = calculateDifficultyMultiplier(supportRate);
+  const multiplierDecimal =
+    calculateDifficultyMultiplierDecimal(supportRateDecimal);
+  const multiplier = multiplierDecimal.toNumber();
 
   let result: PredictionResult["result"];
   let earnedPoint: number | null;
@@ -50,10 +54,10 @@ export const calculatePredictionResult = (
     case "finished":
       if (prediction.predictedWinnerId === fight.winnerId) {
         result = "HIT";
-        earnedPoint = calculateEarnedPoint(
+        earnedPoint = calculateEarnedPointDecimal(
           prediction.point,
-          multiplier
-        );
+          multiplierDecimal
+        ).toNumber();
       } else {
         result = "MISS";
         earnedPoint = 0;

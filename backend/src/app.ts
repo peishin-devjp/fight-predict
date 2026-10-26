@@ -34,6 +34,7 @@ import {
   findValidPasswordResetToken,
   issuePasswordResetToken,
 } from "./services/passwordResetService";
+import { isEventSettled } from "./utils/isEventSettled";
 
 
 const MAX_EVENT_POINTS = 100;
@@ -1701,17 +1702,7 @@ app.get("/rankings", async (_req, res) => {
       continue;
     }
 
-    // scheduledが1件でも存在するEventは未確定
-    const settledStatuses = [
-      "finished",
-      "draw",
-      "no_contest",
-      "cancelled",
-    ];
-
-    const isSettled = fights.every(
-      (fight) => settledStatuses.includes(fight.status)
-    );
+    const isSettled = isEventSettled(fights);
 
     if (isSettled) {
       settledEvents.push(event);

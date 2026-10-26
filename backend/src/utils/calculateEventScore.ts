@@ -1,4 +1,5 @@
 import { calculatePredictionResult } from "./calculatePredictionResult";
+import { isEventSettled } from "./isEventSettled";
 
 type PredictionForEventScore = {
   id: number;
@@ -51,11 +52,8 @@ export const calculateEventScore = (
     );
   });
 
-  // UserのPredictionがすべて確定しているか判定
-  const isSettled = predictionResults.every(
-    (predictionResult) =>
-      predictionResult.result !== "NOT_SETTLED"
-  );
+  // Event内の全Fightが確定しているか判定
+  const isSettled = isEventSettled(eventFights);
 
   if (!isSettled) {
     return {

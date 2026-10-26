@@ -1,10 +1,17 @@
-const roundToOneDecimal = (value: number): number => {
-  return Math.round((value + Number.EPSILON) * 10) / 10;
+import Decimal from "decimal.js";
+
+export const calculateEarnedPointDecimal = (
+  point: Decimal.Value,
+  multiplier: Decimal.Value
+): Decimal => {
+  return new Decimal(point)
+    .times(multiplier)
+    .toDecimalPlaces(1, Decimal.ROUND_HALF_UP);
 };
 
 export const calculateEarnedPoint = (
   point: number,
   multiplier: number
 ): number => {
-  return roundToOneDecimal(point * multiplier);
+  return calculateEarnedPointDecimal(point, multiplier).toNumber();
 };
