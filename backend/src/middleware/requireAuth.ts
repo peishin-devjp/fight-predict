@@ -1,8 +1,6 @@
 import { NextFunction, Request, Response } from "express";
-import { PrismaClient } from "@prisma/client";
+import prisma from "../lib/prisma";
 import { hashSessionToken } from "../utils/sessionToken";
-
-const prisma = new PrismaClient();
 
 export const requireAuth = async (
   req: Request,

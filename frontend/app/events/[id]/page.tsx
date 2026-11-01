@@ -2,6 +2,7 @@ import PredictionForm from "@/components/PredictionForm";
 import { notFound } from "next/navigation";
 import {formatDate} from "@/lib/formatDate";
 import { cookies } from "next/headers";
+import { apiUrl } from "@/lib/api";
 
 type MatchPageProps = {
   params: Promise<{
@@ -13,7 +14,7 @@ export default async function MatchPage({
   params
 }: MatchPageProps) {
   const { id } = await params;
-  const response = await fetch(`http://localhost:3001/events/${id}`);
+  const response = await fetch(apiUrl(`/events/${id}`));
   
   if (response.status === 404) {
     notFound();
@@ -25,7 +26,7 @@ export default async function MatchPage({
   const sessionToken = cookieStore.get("fp_session")?.value;
 
   const predictionResponse = await fetch(
-    `http://localhost:3001/events/${id}/predictions`,
+    apiUrl(`/events/${id}/predictions`),
     {
       headers: sessionToken
         ? {

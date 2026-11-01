@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import MatchCard from "@/components/MatchCard";
+import { apiUrl } from "@/lib/api";
 
 const MAX_EVENT_POINTS = 100;
 const MAX_FIGHT_POINTS = 50;
@@ -133,7 +134,7 @@ export default function PredictionForm(
         predictions,
       };
 
-      const response = await fetch("http://localhost:3001/predictions", {
+      const response = await fetch(apiUrl("/predictions"), {
         method: "POST",
         credentials: "include",
         headers: {

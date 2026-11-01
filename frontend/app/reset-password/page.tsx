@@ -10,6 +10,7 @@ import {
   SyntheticEvent,
   useState,
 } from "react";
+import { apiUrl } from "@/lib/api";
 
 const MIN_PASSWORD_LENGTH = 8;
 
@@ -78,7 +79,7 @@ function ResetPasswordContent() {
 
     try {
       const response = await fetch(
-        "http://localhost:3001/auth/reset-password",
+        apiUrl("/auth/reset-password"),
         {
           method: "POST",
           headers: {

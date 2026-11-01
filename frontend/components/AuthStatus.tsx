@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { apiUrl } from "@/lib/api";
 
 type AuthUser = {
   id: number;
@@ -17,7 +18,7 @@ export default function AuthStatus() {
     const fetchCurrentUser = async () => {
       try {
         const response = await fetch(
-          "http://localhost:3001/auth/me",
+          apiUrl("/auth/me"),
           {
             credentials: "include",
           }
@@ -56,7 +57,7 @@ export default function AuthStatus() {
   const handleLogout = async () => {
     try {
       const response = await fetch(
-        "http://localhost:3001/auth/logout",
+        apiUrl("/auth/logout"),
         {
           method: "POST",
           credentials: "include",

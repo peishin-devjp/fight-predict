@@ -1,8 +1,11 @@
 import EventCard from "@/components/EventCard";
+import { apiUrl } from "@/lib/api";
+
+export const dynamic = "force-dynamic";
 
 export default async function EventsPage() {
 
-  const response = await fetch("http://localhost:3001/events");
+  const response = await fetch(apiUrl("/events"));
   const events = await response.json();
   console.log(events);
 
