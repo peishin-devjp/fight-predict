@@ -1,7 +1,6 @@
 import PredictionForm from "@/components/PredictionForm";
 import { notFound } from "next/navigation";
 import {formatDate} from "@/lib/formatDate";
-import { cookies } from "next/headers";
 import { apiUrl } from "@/lib/api";
 
 type MatchPageProps = {
@@ -22,25 +21,6 @@ export default async function MatchPage({
   
   const event = await response.json();
 
-  const cookieStore = await cookies();
-  const sessionToken = cookieStore.get("fp_session")?.value;
-
-  const predictionResponse = await fetch(
-    apiUrl(`/events/${id}/predictions`),
-    {
-      headers: sessionToken
-        ? {
-            Cookie: `fp_session=${sessionToken}`,
-          }
-        : {},
-      cache: "no-store",
-    }
-  );
-
-  const initialPredictions = predictionResponse.ok
-    ? await predictionResponse.json()
-    : [];
-
   return (
     <div className="max-w-5xl mx-auto p-8">
       <h1 className="text-3xl font-bold mb-2">
@@ -55,7 +35,6 @@ export default async function MatchPage({
       <PredictionForm
         eventId={event.id}
         matches={event.matches}
-        initialPredictions={initialPredictions}
        />
 
       <div className="flex justify-between">
