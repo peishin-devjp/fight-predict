@@ -17,6 +17,7 @@ export type BackupConfigResult =
   | {
       enabled: false;
       reason: string;
+      configurationError: boolean;
     };
 
 const REQUIRED_ENV_VARS = [
@@ -27,6 +28,24 @@ const REQUIRED_ENV_VARS = [
 ] as const;
 
 export function getBackupConfig(): BackupConfigResult {
+  const backupEnabled = process.env.BACKUP_ENABLED?.trim().toLowerCase();
+
+  if (backupEnabled === undefined || backupEnabled === "" || backupEnabled === "false") {
+    return {
+      enabled: false,
+      reason: "Backup is intentionally disabled because BACKUP_ENABLED is not true.",
+      configurationError: false,
+    };
+  }
+
+  if (backupEnabled !== "true") {
+    return {
+      enabled: false,
+      reason: `Backup configuration error: BACKUP_ENABLED must be "true" or "false", but received "${backupEnabled}".`,
+      configurationError: true,
+    };
+  }
+
   const missing = REQUIRED_ENV_VARS.filter(
     (name) => !process.env[name]?.trim(),
   );
@@ -34,9 +53,10 @@ export function getBackupConfig(): BackupConfigResult {
   if (missing.length > 0) {
     return {
       enabled: false,
-      reason: `Backup is disabled because required configuration is missing: ${missing.join(
+      reason: `Backup configuration error: BACKUP_ENABLED is true but required configuration is missing: ${missing.join(
         ", ",
       )}`,
+      configurationError: true,
     };
   }
 

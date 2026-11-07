@@ -180,6 +180,8 @@ export async function runBackup(
   const client = dependencies.r2Client ?? createR2Client(config);
   const sleepFn = dependencies.sleep ?? sleep;
 
+  let backupSucceeded = false;
+
   try {
     const candidate = await createLocalBackupCandidate(
       config.databasePath,
@@ -194,20 +196,38 @@ export async function runBackup(
         sleepFn,
       );
 
-      await notifyBackupSuccess(config.healthchecksPingUrl);
+      backupSucceeded = true;
+
+      try {
+        await notifyBackupSuccess(config.healthchecksPingUrl);
+      } catch (error) {
+        console.error(
+          "Backup succeeded but Healthchecks success notification failed.",
+          error instanceof Error ? error.message : "Unknown error",
+        );
+      }
 
       return {
         ...uploaded,
         createdAt: candidate.createdAt,
       };
     } finally {
-      await removeLocalBackupCandidate(candidate.filePath);
+      try {
+        await removeLocalBackupCandidate(candidate.filePath);
+      } catch (error) {
+        console.error(
+          "Failed to remove local backup candidate.",
+          error instanceof Error ? error.message : "Unknown error",
+        );
+      }
     }
   } catch (error) {
-    try {
-      await notifyBackupFailure(config.healthchecksPingUrl);
-    } catch {
-      // Monitoring failure must not hide the original backup failure.
+    if (!backupSucceeded) {
+      try {
+        await notifyBackupFailure(config.healthchecksPingUrl);
+      } catch {
+        // Monitoring failure must not hide the original backup failure.
+      }
     }
 
     throw error;

@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { access, rm, stat } from "node:fs/promises";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { PrismaClient } from "@prisma/client";
 
 export type LocalBackupCandidate = {
@@ -26,28 +27,24 @@ async function calculateSha256(filePath: string): Promise<string> {
   return hash.digest("hex");
 }
 
-async function verifyIntegrity(databaseUrl: string): Promise<void> {
-  const prisma = new PrismaClient({
-    datasources: {
-      db: {
-        url: databaseUrl,
-      },
-    },
+function verifyIntegrityReadOnly(databasePath: string): void {
+  const database = new DatabaseSync(databasePath, {
+    readOnly: true,
   });
 
   try {
-    const result = await prisma.$queryRawUnsafe<Array<{ integrity_check: string }>>(
-      "PRAGMA integrity_check;",
-    );
+    const result = database
+      .prepare("PRAGMA integrity_check;")
+      .get() as { integrity_check?: unknown } | undefined;
 
     if (
-      result.length !== 1 ||
-      result[0]?.integrity_check.toLowerCase() !== "ok"
+      typeof result?.integrity_check !== "string" ||
+      result.integrity_check.toLowerCase() !== "ok"
     ) {
       throw new Error("SQLite backup candidate failed integrity_check.");
     }
   } finally {
-    await prisma.$disconnect();
+    database.close();
   }
 }
 
@@ -86,7 +83,7 @@ export async function createLocalBackupCandidate(
   try {
     await access(resolvedOutputPath);
 
-    await verifyIntegrity(`file:${resolvedOutputPath}`);
+    verifyIntegrityReadOnly(resolvedOutputPath);
 
     const fileStat = await stat(resolvedOutputPath);
 

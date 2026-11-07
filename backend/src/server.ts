@@ -75,6 +75,8 @@ async function main(): Promise<void> {
         error instanceof Error ? error.message : "Unknown error",
       );
     }
+  } else if (backupConfig.configurationError) {
+    console.error(backupConfig.reason);
   } else {
     console.log(backupConfig.reason);
   }
