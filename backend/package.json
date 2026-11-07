@@ -10,6 +10,7 @@
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1162.0",
     "@phc/format": "^1.0.0",
     "@prisma/client": "^6.19.3",
     "cookie-parser": "^1.4.7",

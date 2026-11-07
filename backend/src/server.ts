@@ -2,10 +2,16 @@ import type { Server } from "node:http";
 import app from "./app";
 import prisma from "./lib/prisma";
 import { getPort, verifyStartup } from "./startup";
+import { getBackupConfig } from "./backup/config";
+import {
+  startBackupScheduler,
+  type BackupScheduler,
+} from "./backup/scheduler";
 
 const SHUTDOWN_TIMEOUT_MS = 10_000;
 
 let server: Server | undefined;
+let backupScheduler: BackupScheduler | undefined;
 let shuttingDown = false;
 
 async function shutdown(signal: NodeJS.Signals): Promise<void> {
@@ -24,6 +30,8 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
   forceShutdownTimer.unref();
 
   try {
+    backupScheduler?.stop();
+
     if (server) {
       await new Promise<void>((resolve, reject) => {
         server!.close((error) => {
@@ -54,6 +62,22 @@ async function main(): Promise<void> {
   server = app.listen(port, "0.0.0.0", () => {
     console.log(`Server is listening on port ${port}.`);
   });
+
+  const backupConfig = getBackupConfig();
+
+  if (backupConfig.enabled) {
+    try {
+      backupScheduler = startBackupScheduler(backupConfig.config);
+      console.log("Daily SQLite backup scheduler enabled.");
+    } catch (error) {
+      console.error(
+        "Daily SQLite backup scheduler could not be initialized. Backend will continue without automatic backups.",
+        error instanceof Error ? error.message : "Unknown error",
+      );
+    }
+  } else {
+    console.log(backupConfig.reason);
+  }
 
   process.once("SIGTERM", () => {
     void shutdown("SIGTERM");
