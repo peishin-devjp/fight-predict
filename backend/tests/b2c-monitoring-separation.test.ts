@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { rm } from "node:fs/promises";
+import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import {
   HeadObjectCommand,
   PutObjectCommand,
@@ -7,8 +10,12 @@ import type { BackupConfig } from "../src/backup/config";
 import type { R2Client } from "../src/backup/r2";
 import { runBackup } from "../src/backup/backup";
 
+const databasePath = path.resolve(
+  "prisma/b2c-monitoring-source-test.sqlite",
+);
+
 const config: BackupConfig = {
-  databasePath: "prisma/b1a-audit.db",
+  databasePath,
   r2Endpoint: "https://example.invalid",
   r2Region: "auto",
   r2Bucket: "test-bucket",
@@ -25,6 +32,18 @@ async function main(): Promise<void> {
 
   let uploadedSize: number | undefined;
   let uploadedSha256: string | undefined;
+
+  await rm(databasePath, { force: true });
+
+  const sourceDatabase = new DatabaseSync(databasePath);
+
+  try {
+    sourceDatabase.exec(
+      "CREATE TABLE backup_test (id INTEGER PRIMARY KEY); INSERT INTO backup_test DEFAULT VALUES;",
+    );
+  } finally {
+    sourceDatabase.close();
+  }
 
   const client: R2Client = {
     send: async (command: unknown) => {
@@ -92,6 +111,7 @@ async function main(): Promise<void> {
     );
   } finally {
     globalThis.fetch = originalFetch;
+    await rm(databasePath, { force: true });
   }
 }
 

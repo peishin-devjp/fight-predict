@@ -8,12 +8,25 @@ import {
 } from "../src/backup/sqliteBackup";
 
 async function main(): Promise<void> {
-  const sourcePath = path.resolve("prisma/b1a-audit.db");
+  const sourcePath = path.resolve(
+    "prisma/b2c-readonly-source-test.sqlite",
+  );
   const candidatePath = path.resolve(
     "prisma/b2c-readonly-test.sqlite",
   );
 
+  await rm(sourcePath, { force: true });
   await rm(candidatePath, { force: true });
+
+  const sourceDatabase = new DatabaseSync(sourcePath);
+
+  try {
+    sourceDatabase.exec(
+      "CREATE TABLE backup_test (id INTEGER PRIMARY KEY); INSERT INTO backup_test DEFAULT VALUES;",
+    );
+  } finally {
+    sourceDatabase.close();
+  }
 
   try {
     const candidate = await createLocalBackupCandidate(
@@ -51,6 +64,7 @@ async function main(): Promise<void> {
     console.log("B-2c SQLite read-only tests PASS.");
   } finally {
     await removeLocalBackupCandidate(candidatePath);
+    await rm(sourcePath, { force: true });
   }
 }
 

@@ -40,6 +40,19 @@ jobs:
 
       - name: Build
         run: npm run build
+      
+      - name: B-2c backup and restore tests
+        run: |
+          node -r ts-node/register tests/b2c-backup-config.test.ts
+          node -r ts-node/register tests/b2c-backup-retry.test.ts
+          node -r ts-node/register tests/b2c-healthchecks.test.ts
+          node -r ts-node/register tests/b2c-monitoring-separation.test.ts
+          node -r ts-node/register tests/b2c-r2.test.ts
+          node -r ts-node/register tests/b2c-restore-cli.test.ts
+          node -r ts-node/register tests/b2c-restore-download.test.ts
+          node -r ts-node/register tests/b2c-restore-validation.test.ts
+          node -r ts-node/register tests/b2c-scheduler.test.ts
+          node -r ts-node/register tests/b2c-sqlite-readonly.test.ts
 
   frontend:
     name: Frontend

@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { rm } from "node:fs/promises";
+import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import {
   HeadObjectCommand,
   PutObjectCommand,
@@ -7,8 +10,12 @@ import type { BackupConfig } from "../src/backup/config";
 import type { R2Client } from "../src/backup/r2";
 import { runBackup } from "../src/backup/backup";
 
+const databasePath = path.resolve(
+  "prisma/b2c-backup-retry-source-test.sqlite",
+);
+
 const config: BackupConfig = {
-  databasePath: "prisma/b1a-audit.db",
+  databasePath,
   r2Endpoint: "https://example.invalid",
   r2Region: "auto",
   r2Bucket: "test-bucket",
@@ -129,11 +136,15 @@ async function testTransientHeadFailureAfterSuccessfulPut(): Promise<void> {
   let putAttempts = 0;
   let headAttempts = 0;
   const sleepCalls: number[] = [];
+  let uploadedSize: number | undefined;
+  let uploadedSha256: string | undefined;
 
   const client: R2Client = {
     send: async (command: unknown) => {
       if (command instanceof PutObjectCommand) {
         putAttempts += 1;
+        uploadedSize = command.input.ContentLength;
+        uploadedSha256 = command.input.Metadata?.sha256;
         return {};
       }
 
@@ -144,14 +155,16 @@ async function testTransientHeadFailureAfterSuccessfulPut(): Promise<void> {
           throw transientError();
         }
 
+        assert.notEqual(uploadedSize, undefined);
+        assert.notEqual(uploadedSha256, undefined);
+
         return {
-          ContentLength: 90112,
+          ContentLength: uploadedSize,
           Metadata: {
             "backup-format-version": "1",
-            sha256:
-              "fd71ab4370d599febc753314c23f097ab9709d40d16ee4f34dd74f5f8d8d1627",
+            sha256: uploadedSha256,
             "source-environment": "production",
-            "database-size": "90112",
+            "database-size": String(uploadedSize),
           },
         };
       }
@@ -170,15 +183,31 @@ async function testTransientHeadFailureAfterSuccessfulPut(): Promise<void> {
   assert.equal(putAttempts, 1);
   assert.equal(headAttempts, 2);
   assert.deepEqual(sleepCalls, [1000]);
-  assert.equal(result.size, 90112);
+  assert.equal(result.size, uploadedSize);
 }
 
 async function main(): Promise<void> {
-  await testTransientPutFailureRetries();
-  await testLogicalPutFailureDoesNotRetry();
-  await testTransientHeadFailureAfterSuccessfulPut();
+  await rm(databasePath, { force: true });
 
-  console.log("B-2c backup retry tests PASS.");
+  const sourceDatabase = new DatabaseSync(databasePath);
+
+  try {
+    sourceDatabase.exec(
+      "CREATE TABLE backup_test (id INTEGER PRIMARY KEY); INSERT INTO backup_test DEFAULT VALUES;",
+    );
+  } finally {
+    sourceDatabase.close();
+  }
+
+  try {
+    await testTransientPutFailureRetries();
+    await testLogicalPutFailureDoesNotRetry();
+    await testTransientHeadFailureAfterSuccessfulPut();
+
+    console.log("B-2c backup retry tests PASS.");
+  } finally {
+    await rm(databasePath, { force: true });
+  }
 }
 
 main().catch((error: unknown) => {
