@@ -1,6 +1,6 @@
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import {
   HeadObjectCommand,
   ListObjectsV2Command,
@@ -15,12 +15,46 @@ import {
   validateDownloadedBackup,
 } from "./restore";
 
+export function parseRestoreArgs(args: string[]): {
+  objectKey?: string;
+} {
+  if (args.length === 0) {
+    return {};
+  }
+
+  if (
+    args.length !== 2 ||
+    args[0] !== "--key" ||
+    !args[1]?.trim()
+  ) {
+    throw new Error(
+      "Usage: restoreCommand.ts [--key <R2-object-key>]",
+    );
+  }
+
+  const objectKey = args[1];
+
+  if (
+    objectKey.trim() !== objectKey ||
+    !objectKey.endsWith(".sqlite") ||
+    objectKey.includes("\\") ||
+    objectKey.split("/").some(
+      (segment) => segment === "" || segment === "." || segment === "..",
+    )
+  ) {
+    throw new Error("Invalid R2 backup object key.");
+  }
+
+  return { objectKey };
+}
+
 type BackupObject = {
   key: string;
   lastModified?: Date | undefined;
 };
 
-export async function listBackupObjects(  client: R2Client,
+export async function listBackupObjects(
+  client: R2Client,
   bucket: string,
   prefix: string,
 ): Promise<BackupObject[]> {
@@ -67,7 +101,75 @@ export async function listBackupObjects(  client: R2Client,
   });
 }
 
-export async function runRestoreVerification(): Promise<void> {
+export async function selectBackupObject(
+  client: R2Client,
+  bucket: string,
+  prefix: string,
+  objectKey?: string,
+): Promise<BackupObject> {
+  if (objectKey !== undefined) {
+    if (
+      !objectKey.startsWith(`${prefix}/`) ||
+      !objectKey.endsWith(".sqlite")
+    ) {
+      throw new Error(
+        "Specified backup key is outside the configured prefix.",
+      );
+    }
+
+    // Explicit selection must never fall back to another object.
+    await client.send(
+      new HeadObjectCommand({
+        Bucket: bucket,
+        Key: objectKey,
+      }),
+    );
+
+    return { key: objectKey };
+  }
+
+  // Preserve the existing latest-backup selection.
+  const backups = await listBackupObjects(
+    client,
+    bucket,
+    prefix,
+  );
+
+  if (backups.length === 0) {
+    throw new Error("No backup objects were found in R2.");
+  }
+
+  const latest = backups[0];
+
+  if (!latest) {
+    throw new Error("Unable to select an R2 backup object.");
+  }
+
+  return latest;
+}
+
+export async function withRestoreTemporaryDirectory<T>(
+  operation: (directory: string) => Promise<T>,
+): Promise<T> {
+  const directory = await mkdtemp(
+    path.join(tmpdir(), "fight-predict-restore-check-"),
+  );
+
+  try {
+    return await operation(directory);
+  } finally {
+    await rm(directory, {
+      recursive: true,
+      force: true,
+    });
+  }
+}
+
+export async function runRestoreVerification(
+  args: string[] = [],
+): Promise<void> {
+  const { objectKey } = parseRestoreArgs(args);
+
   const configResult = getBackupConfig();
 
   if (!configResult.enabled) {
@@ -80,21 +182,12 @@ export async function runRestoreVerification(): Promise<void> {
   console.log("Restore verification mode: DRY-RUN");
   console.log("Production database will not be modified.");
 
-  const backups = await listBackupObjects(
+  const selected = await selectBackupObject(
     client,
     config.r2Bucket,
     config.r2Prefix,
+    objectKey,
   );
-
-  if (backups.length === 0) {
-    throw new Error("No backup objects were found in R2.");
-  }
-
-  const selected = backups[0];
-
-  if (!selected) {
-    throw new Error("Unable to select an R2 backup object.");
-  }
 
   const head = await client.send(
     new HeadObjectCommand({
@@ -111,12 +204,12 @@ export async function runRestoreVerification(): Promise<void> {
     console.log(`Created at: ${createdAt}`);
   }
 
-  const temporaryPath = path.join(
-    tmpdir(),
-    `fight-predict-restore-check-${Date.now()}.sqlite`,
-  );
+  await withRestoreTemporaryDirectory(async (temporaryDirectory) => {
+    const temporaryPath = path.join(
+      temporaryDirectory,
+      "downloaded-backup.sqlite",
+    );
 
-  try {
     const downloaded = await downloadBackupForValidation(
       client,
       config,
@@ -143,9 +236,5 @@ export async function runRestoreVerification(): Promise<void> {
       `Applied migrations: ${validated.migrations.length}`,
     );
     console.log("Production database was not modified.");
-  } finally {
-    await rm(temporaryPath, {
-      force: true,
-    });
-  }
+  });
 }

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { readdir, stat } from "node:fs/promises";
+import { copyFile, readdir, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { PrismaClient } from "@prisma/client";
 import { createWriteStream } from "node:fs";
@@ -151,13 +151,28 @@ export async function validateDownloadedBackup(
     );
   }
 
-  const prisma = new PrismaClient({
-    datasources: {
-      db: {
-        url: `file:${resolvedPath}`,
+  // Validate SQLite using a working copy, never the downloaded original.
+  const workingPath = path.join(
+    path.dirname(resolvedPath),
+    `restore-working-${process.pid}-${Date.now()}.sqlite`,
+  );
+
+  await copyFile(resolvedPath, workingPath);
+
+  let prisma: PrismaClient;
+
+  try {
+    prisma = new PrismaClient({
+      datasources: {
+        db: {
+          url: `file:${workingPath}`,
+        },
       },
-    },
-  });
+    });
+  } catch (error) {
+    await rm(workingPath, { force: true });
+    throw error;
+  }
 
   try {
     const integrity = await prisma.$queryRawUnsafe<
@@ -248,6 +263,10 @@ export async function validateDownloadedBackup(
       migrations: appliedMigrationNames,
     };
   } finally {
-    await prisma.$disconnect();
+    try {
+      await prisma.$disconnect();
+    } finally {
+      await rm(workingPath, { force: true });
+    }
   }
 }
