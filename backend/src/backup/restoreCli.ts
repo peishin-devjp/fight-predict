@@ -183,7 +183,7 @@ export async function runRestoreVerification(
   }
 
   const config = configResult.config;
-  const client = injectedClient ?? createR2Client(config);
+  const client = injectedClient ?? createR2Client(config, { maxAttempts: 1 });
 
   console.log("Restore verification mode: DRY-RUN");
   console.log("Production database will not be modified.");

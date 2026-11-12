@@ -19,8 +19,9 @@ export type VerifiedR2Backup = {
   sha256: string;
 };
 
-export function createR2Client(config: BackupConfig): S3Client {
+export function createR2Client(config: BackupConfig, options: { maxAttempts?: number } = {}): S3Client {
   const clientConfig: S3ClientConfig = {
+    ...options,
     region: config.r2Region,
     endpoint: config.r2Endpoint,
     credentials: {
