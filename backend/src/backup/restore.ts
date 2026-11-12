@@ -11,6 +11,7 @@ import {
 } from "@aws-sdk/client-s3";
 import type { BackupConfig } from "./config";
 import type { R2Client } from "./r2";
+import { classifyRestoreError } from "./restoreDiagnostics";
 
 const REQUIRED_TABLES = [
   "User",
@@ -44,12 +45,17 @@ export async function downloadBackupForValidation(
   key: string,
   outputPath: string,
 ): Promise<DownloadedBackup> {
-  const head = await client.send(
-    new HeadObjectCommand({
-      Bucket: config.r2Bucket,
-      Key: key,
-    }),
-  );
+  let head;
+  try {
+    head = await client.send(
+      new HeadObjectCommand({
+        Bucket: config.r2Bucket,
+        Key: key,
+      }),
+    );
+  } catch (error: unknown) {
+    throw classifyRestoreError("R2_HEAD", error);
+  }
 
   const expectedSize = head.ContentLength;
   const expectedSha256 = head.Metadata?.sha256;
@@ -72,12 +78,17 @@ export async function downloadBackupForValidation(
     );
   }
 
-  const response = await client.send(
-    new GetObjectCommand({
-      Bucket: config.r2Bucket,
-      Key: key,
-    }),
-  );
+  let response;
+  try {
+    response = await client.send(
+      new GetObjectCommand({
+        Bucket: config.r2Bucket,
+        Key: key,
+      }),
+    );
+  } catch (error: unknown) {
+    throw classifyRestoreError("R2_GET", error);
+  }
 
   if (!response.Body) {
     throw new Error(
@@ -87,12 +98,16 @@ export async function downloadBackupForValidation(
 
   const resolvedOutputPath = path.resolve(outputPath);
 
-  await pipeline(
-    response.Body as NodeJS.ReadableStream,
-    createWriteStream(resolvedOutputPath, {
-      flags: "wx",
-    }),
-  );
+  try {
+    await pipeline(
+      response.Body as NodeJS.ReadableStream,
+      createWriteStream(resolvedOutputPath, {
+        flags: "wx",
+      }),
+    );
+  } catch (error: unknown) {
+    throw classifyRestoreError("DOWNLOAD", error);
+  }
 
   return {
     filePath: resolvedOutputPath,

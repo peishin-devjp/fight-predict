@@ -200,7 +200,11 @@ async function testMissingExplicitBackup(): Promise<void> {
       "production/daily",
       missingKey,
     ),
-    { name: "NotFound" },
+    {
+      name: "RestoreDiagnosticError",
+      stage: "R2_HEAD",
+      code: "NOT_FOUND",
+    },
   );
 
   assert.equal(headCalls, 1);

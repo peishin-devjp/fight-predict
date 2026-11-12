@@ -6,6 +6,7 @@ import {
   ListObjectsV2Command,
 } from "@aws-sdk/client-s3";
 import { getBackupConfig } from "./config";
+import { classifyRestoreError } from "./restoreDiagnostics";
 import {
   createR2Client,
   type R2Client,
@@ -118,12 +119,16 @@ export async function selectBackupObject(
     }
 
     // Explicit selection must never fall back to another object.
-    await client.send(
-      new HeadObjectCommand({
-        Bucket: bucket,
-        Key: objectKey,
-      }),
-    );
+    try {
+      await client.send(
+        new HeadObjectCommand({
+          Bucket: bucket,
+          Key: objectKey,
+        }),
+      );
+    } catch (error: unknown) {
+      throw classifyRestoreError("R2_HEAD", error);
+    }
 
     return { key: objectKey };
   }
@@ -167,6 +172,7 @@ export async function withRestoreTemporaryDirectory<T>(
 
 export async function runRestoreVerification(
   args: string[] = [],
+  injectedClient?: R2Client,
 ): Promise<void> {
   const { objectKey } = parseRestoreArgs(args);
 
@@ -177,7 +183,7 @@ export async function runRestoreVerification(
   }
 
   const config = configResult.config;
-  const client = createR2Client(config);
+  const client = injectedClient ?? createR2Client(config);
 
   console.log("Restore verification mode: DRY-RUN");
   console.log("Production database will not be modified.");
@@ -189,12 +195,17 @@ export async function runRestoreVerification(
     objectKey,
   );
 
-  const head = await client.send(
-    new HeadObjectCommand({
-      Bucket: config.r2Bucket,
-      Key: selected.key,
-    }),
-  );
+  let head;
+  try {
+    head = await client.send(
+      new HeadObjectCommand({
+        Bucket: config.r2Bucket,
+        Key: selected.key,
+      }),
+    );
+  } catch (error: unknown) {
+    throw classifyRestoreError("R2_HEAD", error);
+  }
 
   const createdAt = head.Metadata?.["created-at"];
 

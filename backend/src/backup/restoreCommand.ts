@@ -1,11 +1,7 @@
-
-import { runRestoreVerification } from "./restoreCli";
+﻿import { runRestoreVerification } from "./restoreCli";
+import { formatRestoreError } from "./restoreErrorOutput";
 
 runRestoreVerification(process.argv.slice(2)).catch((error: unknown) => {
-  console.error(
-    "Restore verification FAILED.",
-    error instanceof Error ? error.message : "Unknown error",
-  );
-
+  console.error(formatRestoreError(error));
   process.exitCode = 1;
 });
