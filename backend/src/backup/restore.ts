@@ -54,7 +54,7 @@ export async function downloadBackupForValidation(
       }),
     );
   } catch (error: unknown) {
-    throw classifyRestoreError("R2_HEAD", error);
+    throw classifyRestoreError("R2_HEAD", error, "HEAD_3");
   }
 
   const expectedSize = head.ContentLength;

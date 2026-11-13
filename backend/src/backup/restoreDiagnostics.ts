@@ -1,4 +1,4 @@
-export type RestoreStage =
+﻿export type RestoreStage =
   | "CONFIG"
   | "R2_HEAD"
   | "R2_GET"
@@ -18,10 +18,34 @@ export type RestoreErrorCode =
   | "VALIDATION_ERROR"
   | "UNKNOWN_ERROR";
 
+export type RestoreHeadLocation =
+  | "HEAD_1"
+  | "HEAD_2"
+  | "HEAD_3";
+
+export type SafeSdkErrorName =
+  | "AccessDenied"
+  | "InvalidAccessKeyId"
+  | "SignatureDoesNotMatch"
+  | "NoSuchKey"
+  | "NotFound"
+  | "UNKNOWN";
+
+const SAFE_SDK_ERROR_NAMES = new Set<string>([
+  "AccessDenied",
+  "InvalidAccessKeyId",
+  "SignatureDoesNotMatch",
+  "NoSuchKey",
+  "NotFound",
+]);
+
 export class RestoreDiagnosticError extends Error {
   constructor(
     public readonly stage: RestoreStage,
     public readonly code: RestoreErrorCode,
+    public readonly headLocation?: RestoreHeadLocation,
+    public readonly httpStatus?: number,
+    public readonly sdkErrorName: SafeSdkErrorName = "UNKNOWN",
   ) {
     super("Restore verification failed.");
     this.name = "RestoreDiagnosticError";
@@ -31,6 +55,7 @@ export class RestoreDiagnosticError extends Error {
 export function classifyRestoreError(
   stage: RestoreStage,
   error: unknown,
+  headLocation?: RestoreHeadLocation,
 ): RestoreDiagnosticError {
   if (error instanceof RestoreDiagnosticError) {
     return error;
@@ -47,10 +72,24 @@ export function classifyRestoreError(
   const networkCode = source["code"];
 
   const metadata = source["$metadata"];
-  const httpStatus =
+  const rawHttpStatus =
     typeof metadata === "object" && metadata !== null
       ? (metadata as Record<string, unknown>)["httpStatusCode"]
       : undefined;
+
+  const httpStatus =
+    typeof rawHttpStatus === "number" &&
+    Number.isInteger(rawHttpStatus) &&
+    rawHttpStatus >= 100 &&
+    rawHttpStatus <= 599
+      ? rawHttpStatus
+      : undefined;
+
+  const sdkErrorName: SafeSdkErrorName =
+    typeof name === "string" &&
+    SAFE_SDK_ERROR_NAMES.has(name)
+      ? name as SafeSdkErrorName
+      : "UNKNOWN";
 
   let code: RestoreErrorCode = "UNKNOWN_ERROR";
 
@@ -58,18 +97,18 @@ export function classifyRestoreError(
     name === "InvalidAccessKeyId" ||
     name === "SignatureDoesNotMatch" ||
     name === "UnrecognizedClientException" ||
-    httpStatus === 401
+    rawHttpStatus === 401
   ) {
     code = "AUTH_ERROR";
   } else if (
     name === "AccessDenied" ||
-    httpStatus === 403
+    rawHttpStatus === 403
   ) {
     code = "ACCESS_DENIED";
   } else if (
     name === "NoSuchKey" ||
     name === "NotFound" ||
-    httpStatus === 404
+    rawHttpStatus === 404
   ) {
     code = "NOT_FOUND";
   } else if (
@@ -84,5 +123,11 @@ export function classifyRestoreError(
     code = "NETWORK_ERROR";
   }
 
-  return new RestoreDiagnosticError(stage, code);
+  return new RestoreDiagnosticError(
+    stage,
+    code,
+    headLocation,
+    httpStatus,
+    sdkErrorName,
+  );
 }

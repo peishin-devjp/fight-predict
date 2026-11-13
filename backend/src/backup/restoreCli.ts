@@ -127,7 +127,7 @@ export async function selectBackupObject(
         }),
       );
     } catch (error: unknown) {
-      throw classifyRestoreError("R2_HEAD", error);
+      throw classifyRestoreError("R2_HEAD", error, "HEAD_1");
     }
 
     return { key: objectKey };
@@ -204,7 +204,7 @@ export async function runRestoreVerification(
       }),
     );
   } catch (error: unknown) {
-    throw classifyRestoreError("R2_HEAD", error);
+    throw classifyRestoreError("R2_HEAD", error, "HEAD_2");
   }
 
   const createdAt = head.Metadata?.["created-at"];
