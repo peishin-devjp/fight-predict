@@ -317,51 +317,34 @@ export default function PredictionForm({
     }
   };
 
-  if (loadStatus === "loading") {
-    return (
-      <div className="p-4">
-        <p>保存済みの予想を読み込んでいます...</p>
-      </div>
-    );
-  }
+  const canPredict = loadStatus === "ready";
 
-  if (loadStatus === "unauthenticated") {
-    return (
-      <div className="p-4">
-        <p>
-          予想を確認・保存するにはログインが必要です。
-        </p>
-      </div>
-    );
-  }
-
-  if (loadStatus === "session-expired") {
-    return (
-      <div className="p-4">
-        <p>
-          セッションの有効期限が切れました。再度ログインしてください。
-        </p>
-      </div>
-    );
-  }
-
-  if (loadStatus === "error") {
-    return (
-      <div className="p-4">
-        <p>
-          保存済みの予想を取得できませんでした。時間をおいて再度お試しください。
-        </p>
-      </div>
-    );
-  }
+  const statusMessage: string | null =
+    loadStatus === "loading"
+      ? "保存済みの予想を読み込んでいます..."
+      : loadStatus === "unauthenticated"
+        ? "予想を確認・保存するにはログインが必要です。"
+        : loadStatus === "session-expired"
+          ? "セッションの有効期限が切れました。再度ログインしてください。"
+          : loadStatus === "error"
+            ? "保存済みの予想を取得できませんでした。時間をおいて再度お試しください。"
+            : null;
 
   return (
     <>
-      <div className="p-4">
-        <p className={remainingPoint < 0 ? "text-red-500" : ""}>
-          残り: {remainingPoint}pt
-        </p>
-      </div>
+      {statusMessage && (
+        <div className="p-4" role="status">
+          <p>{statusMessage}</p>
+        </div>
+      )}
+
+      {canPredict && (
+        <div className="p-4">
+          <p className={remainingPoint < 0 ? "text-red-500" : ""}>
+            残り: {remainingPoint}pt
+          </p>
+        </div>
+      )}
 
       {matches.map((match) => (
         <MatchCard
@@ -373,20 +356,23 @@ export default function PredictionForm({
           playerId2={match.playerId2}
           odds1={match.odds1}
           odds2={match.odds2}
-          selectedWinnerId={winners[match.matchCard]}
-          point={points[match.matchCard]}
+          selectedWinnerId={canPredict ? winners[match.matchCard] : undefined}
+          point={canPredict ? points[match.matchCard] : undefined}
           onPointChange={handlePointChange}
           onWinnerChange={handleWinnerChange}
+          disabled={!canPredict}
         />
       ))}
 
-      <button
-        className="mt-6 rounded bg-black px-6 py-3 text-white"
-        onClick={handleSave}
-        disabled={loadStatus !== "ready"}
-      >
-        予想を確定する
-      </button>
+      {canPredict && (
+        <button
+          className="mt-6 rounded bg-black px-6 py-3 text-white"
+          onClick={handleSave}
+          disabled={!canPredict}
+        >
+          予想を確定する
+        </button>
+      )}
 
       {saveMessage && (
         <p className="mt-3 text-sm">{saveMessage}</p>

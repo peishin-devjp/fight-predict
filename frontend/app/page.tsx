@@ -1,90 +1,125 @@
 import Link from "next/link";
 import EventCard from "@/components/EventCard";
-import RankingCards from "@/components/RankingCard";
+import { apiUrl } from "@/lib/api";
 
-export default function Home() {
+export const dynamic = "force-dynamic";
+
+type EventItem = {
+  id: number;
+  name: string;
+  date: string;
+  mainCard: string | null;
+};
+
+async function getUpcomingEvents(): Promise<EventItem[]> {
+  const response = await fetch(apiUrl("/events"), {
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch events: ${response.status}`);
+  }
+
+  const data: unknown = await response.json();
+
+  if (
+    !Array.isArray(data) ||
+    !data.every(
+      (item): item is EventItem =>
+        item !== null &&
+        typeof item === "object" &&
+        typeof item.id === "number" &&
+        typeof item.name === "string" &&
+        typeof item.date === "string" &&
+        (typeof item.mainCard === "string" ||
+          item.mainCard === null)
+    )
+  ) {
+    throw new Error("Invalid events response");
+  }
+
+  const now = Date.now();
+
+  return data
+    .filter((event) => {
+      const date = Date.parse(event.date);
+      return Number.isFinite(date) && date >= now;
+    })
+    .sort(
+      (a, b) =>
+        Date.parse(a.date) - Date.parse(b.date)
+    )
+    .slice(0, 3);
+}
+
+export default async function Home() {
+  let events: EventItem[] = [];
+  let error = false;
+
+  try {
+    events = await getUpcomingEvents();
+  } catch (err) {
+    console.error("Failed to load upcoming events:", err);
+    error = true;
+  }
+
   return (
     <div className="max-w-5xl mx-auto p-8">
-      <h1  className="text-3xl font-bold mb-8">
+      <h1 className="text-3xl font-bold mb-8">
         Fight Predict
       </h1>
+
       <p className="mb-10 text-lg text-gray-600">
-        格闘技の勝敗予想を<br />
+        格闘技の勝敗予想を
+        <br />
         みんなで楽しもう
       </p>
 
       <section className="mb-10">
         <h2 className="text-2xl font-semibold border-b pb-2 mb-4">
-          注目試合
-        </h2>
-
-        <div className="mt-4 border rounded-lg p-4">
-          <p className="text-base font-semibold text-gray-600">UFC 320</p>
-
-          <h3 className="text-xl font-bold mt-2">
-            アレックス・ペレイラ vs マゴメド・アンカラエフ
-          </h3>
-          <p className="mt-2">
-            開催日：2026/7/20
-          </p>
-          <button className="mt-3 rounded px-3 py-2 bg-black text-white">
-            勝敗を予想する
-          </button>
-        </div>
-
-        <h2 className="mt-10 text-2xl font-semibold border-b pb-2 mb-4">
           開催予定大会
         </h2>
 
-        <EventCard
-          eventId={1}
-          eventName="RIZIN 33"
-          mainCard="朝倉海 vs 佐々木ウルカ"
-          eventDate="2026/08/10"
-        />
+        {error ? (
+          <p role="alert" className="text-red-600">
+            大会情報を取得できませんでした。
+            時間をおいて再度お試しください。
+          </p>
+        ) : events.length === 0 ? (
+          <p className="text-gray-600">
+            現在、開催予定の大会はありません。
+          </p>
+        ) : (
+          events.map((event) => (
+            <EventCard
+              key={event.id}
+              eventId={event.id}
+              eventName={event.name}
+              mainCard={event.mainCard ?? undefined}
+              eventDate={event.date}
+            />
+          ))
+        )}
 
-        <EventCard
-          eventId={1}
-          eventName="DEEP 101"
-          mainCard="タイガ vs 火の鳥"
-          eventDate="2026/08/25"
-        />
-
-        <Link href="/events">
-          <button className="mt-6 rounded bg-black px-6 py-3 text-white">
-            他大会を見る
-          </button>
+        <Link
+          href="/events"
+          className="inline-block mt-6 rounded bg-black px-6 py-3 text-white"
+        >
+          大会一覧を見る
         </Link>
+      </section>
 
-
-        <h2 className="text-2xl font-semibold border-b pb-2 mt-18 mb-4">
-          直近3大会ランキング
+      <section>
+        <h2 className="text-2xl font-semibold border-b pb-2 mb-4">
+          ランキング
         </h2>
 
-        <RankingCards
-          rank={1}
-          userName="格闘王"
-          point={385}
-        />
-
-        <RankingCards
-          rank={2}
-          userName="PEISHIN"
-          point={370}
-        />
-
-        <RankingCards
-          rank={3}
-          userName="ILOVEMMA"
-          point={365}
-        />
-
-        <button className="mt-3 rounded px-3 py-2 bg-black text-white">
-          <Link href="/ranking">
-            ランキングを見る
-          </Link>
-        </button>
-
+        <Link
+          href="/ranking"
+          className="inline-block mt-3 rounded bg-black px-3 py-2 text-white"
+        >
+          ランキングを見る
+        </Link>
       </section>
     </div>
   );

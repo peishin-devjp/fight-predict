@@ -8,6 +8,7 @@ type MatchCardProps = {
   odds2: number;  //選手2のオッズ
   selectedWinnerId?: number;  //選択された勝者のID
   point?: number | "";  //配分ポイント
+  disabled?: boolean;
 
   onPointChange: (matchCard: string, point: number | "") => void;  //配分ポイントの変更を通知するコールバック関数
   onWinnerChange: (matchCard: string, winnerId: number) => void;  //勝者の変更を通知するコールバック関数
@@ -24,7 +25,8 @@ export default function MatchCard({
   selectedWinnerId,
   point,
   onPointChange,
-  onWinnerChange
+  onWinnerChange,
+  disabled = false,
 }: MatchCardProps) {
   return (
     <div className="border rounded-lg p-4 text-base mb-4">
@@ -36,6 +38,7 @@ export default function MatchCard({
           name={matchCard}
           className="mt-1"
           checked={selectedWinnerId === playerId1}
+          disabled={disabled}
           onChange={() => onWinnerChange(matchCard, playerId1)}
         />
         <div className="ml-2">
@@ -54,6 +57,7 @@ export default function MatchCard({
           name={matchCard}
           className="mt-1"
           checked={selectedWinnerId === playerId2}
+          disabled={disabled}
           onChange={() => onWinnerChange(matchCard, playerId2)}
         />
         <div className="ml-2">
@@ -72,6 +76,7 @@ export default function MatchCard({
           max={50}
           value={point ?? ""}
           className="ml-3 w-20 rounded border p-1"
+          disabled={disabled}
           onChange={(e) => {
             const value = e.target.value;
             onPointChange(
