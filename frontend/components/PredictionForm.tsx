@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import MatchCard from "@/components/MatchCard";
 import { apiUrl } from "@/lib/api";
 
@@ -34,6 +34,7 @@ type PredictionLoadStatus =
 type PredictionFormProps = {
   eventId: string | number;
   matches: Match[];
+  deadline: string;
 };
 
 function buildPredictionState(
@@ -75,6 +76,7 @@ function buildPredictionState(
 export default function PredictionForm({
   eventId,
   matches,
+  deadline,
 }: PredictionFormProps) {
   const [loadStatus, setLoadStatus] =
     useState<PredictionLoadStatus>("loading");
@@ -83,12 +85,50 @@ export default function PredictionForm({
     useState(MAX_EVENT_POINTS);
 
   const [saveMessage, setSaveMessage] = useState("");
+  const messageTimerRef = useRef<number | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const savingRef = useRef(false);
 
   const [points, setPoints] =
     useState<Record<string, number | "">>({});
 
   const [winners, setWinners] =
     useState<Record<string, number>>({});
+
+  const [savedPredictions, setSavedPredictions] =
+    useState<Prediction[]>([]);
+
+  const [isDeadlinePassed, setIsDeadlinePassed] =
+    useState(false);
+
+  const [isBackendDeadlinePassed, setIsBackendDeadlinePassed] =
+    useState(false);
+
+  const isPredictionClosed =
+    isDeadlinePassed || isBackendDeadlinePassed;
+
+
+  useEffect(() => {
+    const deadlineTime = new Date(deadline).getTime();
+
+    const updateDeadlineStatus = () => {
+      setIsDeadlinePassed(
+        !Number.isFinite(deadlineTime) ||
+        Date.now() >= deadlineTime
+      );
+    };
+
+    updateDeadlineStatus();
+
+    const timer = window.setInterval(
+      updateDeadlineStatus,
+      250
+    );
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [deadline]);
 
   useEffect(() => {
     let cancelled = false;
@@ -153,6 +193,7 @@ export default function PredictionForm({
           return;
         }
 
+        setSavedPredictions(result as Prediction[]);
         setPoints(loaded.points);
         setWinners(loaded.winners);
         setRemainingPoint(loaded.remainingPoint);
@@ -173,19 +214,53 @@ export default function PredictionForm({
     };
   }, [eventId, matches]);
 
-  const showMessage = (message: string) => {
+  useEffect(() => {
+    return () => {
+      if (messageTimerRef.current !== null) {
+        window.clearTimeout(messageTimerRef.current);
+        messageTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  const showMessage = (
+    message: string,
+    persistent = false
+  ) => {
+    if (messageTimerRef.current !== null) {
+      window.clearTimeout(messageTimerRef.current);
+      messageTimerRef.current = null;
+    }
+
     setSaveMessage(message);
 
-    setTimeout(() => {
-      setSaveMessage("");
-    }, 3000);
+    if (!persistent) {
+      messageTimerRef.current = window.setTimeout(() => {
+        setSaveMessage("");
+        messageTimerRef.current = null;
+      }, 3000);
+    }
+  };
+
+  const isDeadlineClosed = () => {
+    const deadlineTime = new Date(deadline).getTime();
+
+    return (
+      isPredictionClosed ||
+      !Number.isFinite(deadlineTime) ||
+      Date.now() >= deadlineTime
+    );
   };
 
   const handlePointChange = (
     matchCard: string,
     point: number | ""
   ) => {
-    if (loadStatus !== "ready") {
+    if (
+      loadStatus !== "ready" ||
+      isDeadlineClosed() ||
+      savingRef.current
+    ) {
       return;
     }
 
@@ -208,7 +283,11 @@ export default function PredictionForm({
     matchCard: string,
     winnerId: number
   ) => {
-    if (loadStatus !== "ready") {
+    if (
+      loadStatus !== "ready" ||
+      isDeadlineClosed() ||
+      savingRef.current
+    ) {
       return;
     }
 
@@ -221,6 +300,15 @@ export default function PredictionForm({
   };
 
   const handleSave = async () => {
+    if (savingRef.current) {
+      return;
+    }
+
+    if (isDeadlineClosed()) {
+      setIsDeadlinePassed(true);
+      return;
+    }
+
     if (loadStatus !== "ready") {
       showMessage(
         "保存済み予想の確認が完了するまで保存できません。"
@@ -269,6 +357,9 @@ export default function PredictionForm({
         return;
       }
 
+      savingRef.current = true;
+      setIsSaving(true);
+
       const response = await fetch(apiUrl("/predictions"), {
         method: "POST",
         credentials: "include",
@@ -287,6 +378,21 @@ export default function PredictionForm({
       }
 
       if (response.ok) {
+        setSavedPredictions((previous) => {
+          const updated = new Map(
+            previous.map((prediction) => [
+              prediction.fightId,
+              prediction,
+            ])
+          );
+
+          for (const prediction of predictions) {
+            updated.set(prediction.fightId, prediction);
+          }
+
+          return Array.from(updated.values());
+        });
+
         showMessage("予想を確定しました。");
       } else if (response.status === 401) {
         const code =
@@ -308,16 +414,52 @@ export default function PredictionForm({
             "予想を保存するにはログインが必要です。"
           );
         }
+      } else if (
+        response.status === 403 &&
+        typeof result === "object" &&
+        result !== null &&
+        "code" in result &&
+        result.code === "PREDICTION_DEADLINE_PASSED"
+      ) {
+        setIsBackendDeadlinePassed(true);
+        showMessage(
+          "予想締切を過ぎたため、予想は保存されませんでした。",
+          true
+        );
       } else {
         showMessage("予想の保存に失敗しました。");
       }
     } catch (error) {
       console.error("Error saving predictions:", error);
       showMessage("予想の保存に失敗しました。");
+    } finally {
+      savingRef.current = false;
+      setIsSaving(false);
     }
   };
 
-  const canPredict = loadStatus === "ready";
+  const canViewPredictions = loadStatus === "ready";
+  const canPredict =
+    canViewPredictions &&
+    !isPredictionClosed &&
+    !isSaving;
+
+  const savedState = buildPredictionState(
+    matches,
+    savedPredictions
+  );
+
+  const displayPoints = isPredictionClosed
+    ? savedState.points
+    : points;
+
+  const displayWinners = isPredictionClosed
+    ? savedState.winners
+    : winners;
+
+  const displayRemainingPoint = isPredictionClosed
+    ? savedState.remainingPoint
+    : remainingPoint;
 
   const statusMessage: string | null =
     loadStatus === "loading"
@@ -328,7 +470,9 @@ export default function PredictionForm({
           ? "セッションの有効期限が切れました。再度ログインしてください。"
           : loadStatus === "error"
             ? "保存済みの予想を取得できませんでした。時間をおいて再度お試しください。"
-            : null;
+            : isPredictionClosed
+              ? "予想の受付は終了しました。"
+              : null;
 
   return (
     <>
@@ -338,10 +482,10 @@ export default function PredictionForm({
         </div>
       )}
 
-      {canPredict && (
+      {canViewPredictions && (
         <div className="p-4">
-          <p className={remainingPoint < 0 ? "text-red-500" : ""}>
-            残り: {remainingPoint}pt
+          <p className={displayRemainingPoint < 0 ? "text-red-500" : ""}>
+            残り: {displayRemainingPoint}pt
           </p>
         </div>
       )}
@@ -356,22 +500,28 @@ export default function PredictionForm({
           playerId2={match.playerId2}
           odds1={match.odds1}
           odds2={match.odds2}
-          selectedWinnerId={canPredict ? winners[match.matchCard] : undefined}
-          point={canPredict ? points[match.matchCard] : undefined}
+          selectedWinnerId={canViewPredictions ? displayWinners[match.matchCard] : undefined}
+          point={canViewPredictions ? displayPoints[match.matchCard] : undefined}
           onPointChange={handlePointChange}
           onWinnerChange={handleWinnerChange}
           disabled={!canPredict}
         />
       ))}
 
-      {canPredict && (
+      {canViewPredictions && !isPredictionClosed && (
         <button
-          className="mt-6 rounded bg-black px-6 py-3 text-white"
+          className="mt-6 rounded bg-black px-6 py-3 text-white disabled:opacity-50"
           onClick={handleSave}
           disabled={!canPredict}
         >
-          予想を確定する
+          {isSaving ? "保存中..." : "予想を確定する"}
         </button>
+      )}
+
+      {isSaving && isPredictionClosed && (
+        <p className="mt-3 text-sm" role="status">
+          保存結果を確認しています...
+        </p>
       )}
 
       {saveMessage && (

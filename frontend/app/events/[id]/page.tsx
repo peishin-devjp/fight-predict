@@ -139,6 +139,7 @@ export default async function MatchPage({
         <PredictionForm
           eventId={event.id}
           matches={event.matches}
+          deadline={event.deadline}
         />
       )}
     </div>
