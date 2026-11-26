@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { SyntheticEvent, useState } from "react";
+import { apiUrl } from "@/lib/api";
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
@@ -22,7 +23,7 @@ export default function ForgotPasswordPage() {
 
     try {
       const response = await fetch(
-        "http://localhost:3001/auth/forgot-password",
+        apiUrl("/auth/forgot-password"),
         {
           method: "POST",
           headers: {

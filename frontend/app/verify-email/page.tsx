@@ -11,6 +11,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { apiUrl } from "@/lib/api";
 
 type VerificationStatus =
   | "verifying"
@@ -54,7 +55,7 @@ function VerifyEmailContent() {
     const verifyEmail = async () => {
       try {
         const response = await fetch(
-          "http://localhost:3001/auth/verify-email",
+          apiUrl("/auth/verify-email"),
           {
             method: "POST",
             headers: {

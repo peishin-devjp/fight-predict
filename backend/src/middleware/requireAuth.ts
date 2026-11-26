@@ -1,8 +1,6 @@
 import { NextFunction, Request, Response } from "express";
-import { PrismaClient } from "@prisma/client";
+import prisma from "../lib/prisma";
 import { hashSessionToken } from "../utils/sessionToken";
-
-const prisma = new PrismaClient();
 
 export const requireAuth = async (
   req: Request,
@@ -18,6 +16,7 @@ export const requireAuth = async (
   ) {
     return res.status(401).json({
       success: false,
+      code: "AUTH_REQUIRED",
       message: "Unauthorized",
     });
   }
@@ -34,20 +33,16 @@ export const requireAuth = async (
   if (!session) {
     return res.status(401).json({
       success: false,
+      code: "AUTH_REQUIRED",
       message: "Unauthorized",
     });
   }
 
   // Sessionの有効期限を確認
   if (session.expiresAt <= new Date()) {
-    await prisma.session.delete({
-      where: {
-        id: session.id,
-      },
-    });
-
     return res.status(401).json({
       success: false,
+      code: "SESSION_EXPIRED",
       message: "Unauthorized",
     });
   }

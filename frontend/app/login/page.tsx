@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
+import { apiUrl } from "@/lib/api";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -27,7 +28,7 @@ export default function LoginPage() {
 
     try {
       const response = await fetch(
-        "http://localhost:3001/auth/login",
+        apiUrl("/auth/login"),
         {
           method: "POST",
           credentials: "include",
@@ -105,7 +106,7 @@ export default function LoginPage() {
 
     try {
       const response = await fetch(
-        "http://localhost:3001/auth/resend-verification",
+        apiUrl("/auth/resend-verification"),
         {
           method: "POST",
           headers: {

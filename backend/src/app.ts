@@ -1,7 +1,7 @@
 import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
-import { PrismaClient } from "@prisma/client";
+import prisma from "./lib/prisma";
 import { calculatePredictionResult } from "./utils/calculatePredictionResult";
 import { calculateEventScore } from "./utils/calculateEventScore";
 import { normalizeEmail } from "./utils/normalizeEmail";
@@ -41,9 +41,20 @@ const MAX_EVENT_POINTS = 100;
 const MAX_FIGHT_POINTS = 50;
 
 const app = express();
-const prisma = new PrismaClient();
 
-// TODO: 本番Deploy先のReverse Proxy構成確定後、trust proxyを必要な範囲だけ設定する
+const trustProxyHops = process.env.TRUST_PROXY_HOPS;
+
+if (process.env.NODE_ENV === "production" && trustProxyHops) {
+  const hops = Number(trustProxyHops);
+
+  if (!Number.isInteger(hops) || hops < 1) {
+    throw new Error(
+      "TRUST_PROXY_HOPS must be a positive integer when configured.",
+    );
+  }
+
+  app.set("trust proxy", hops);
+}
 
 const sendError = (
   res: express.Response,
@@ -679,6 +690,9 @@ app.get("/", (req, res) => {
   res.send("Fight Predict API");
 });
 
+app.get("/health", (_req, res) => {
+  res.status(200).json({ status: "ok" });
+});
 
 // ==============================
 // 大会一覧取得

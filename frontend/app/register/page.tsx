@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { FormEvent, useState } from "react";
+import { apiUrl } from "@/lib/api";
 
 const MIN_PASSWORD_LENGTH = 8;
 
@@ -32,7 +33,7 @@ export default function RegisterPage() {
 
     try {
       const response = await fetch(
-        "http://localhost:3001/auth/register",
+        apiUrl("/auth/register"),
         {
           method: "POST",
           credentials: "include",
